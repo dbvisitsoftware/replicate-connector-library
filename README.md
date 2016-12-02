@@ -1,10 +1,10 @@
 # Replicate Connector Library
 
-Copyright (C) 2016 Dbvisit Software Limited -- Updated 1 December 2016
+Copyright (C) 2016 Dbvisit Software Limited -- Updated 2 December 2016.
 
 # 1 Introduction
 
-Use the replicate connector library to connect to Parsed Logs (PLOGs) produced by [Dbvisit Replicate software](http://www.dbvisit.com), which mines change records from Oracle REDO Logs.
+Use the Replicate Connector Library to process Parsed Logs (PLOGs) produced by the [Dbvisit Replicate application](http://www.dbvisit.com/products/dbvisit_replicate_real_time_oracle_database_replication/), which mines change records from Oracle REDO Logs.
 
 # 2 Licensing
 
@@ -20,7 +20,7 @@ To install it to local Maven repository:
 mvn clean install
 ```
 
-To use it in another project include it to your POM file:
+To use it in another project include it in your POM file:
 
 ```
 <dependency>
@@ -30,7 +30,7 @@ To use it in another project include it to your POM file:
 </dependency>
 ```
 
-To build the document the Replicate Connector Library:
+To build the documentation for the Replicate Connector Library:
 
 ```
 mvn javadoc:javadoc
@@ -38,5 +38,5 @@ mvn javadoc:javadoc
 
 # 4 Contributions
 
-Active communities contribute code and we're happy to consider yours. To be involved, please email <a href="mailto:mike.donovan@dbvisit.com">Mike Donovan</a>.
+Active communities contribute code and we're happy to consider yours. To be involved, please email <a href="mailto:github@dbvisit.com">Mike Donovan</a>.
 
