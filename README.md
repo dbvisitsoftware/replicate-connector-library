@@ -26,7 +26,7 @@ To use it in another project include it in your POM file:
 <dependency>
     <groupId>com.dbvisit.replicate</groupId>
     <artifactId>replicate-connector-lib</artifactId>
-    <version>2.8.02-SNAPSHOT</version>
+    <version>2.8.04</version>
 </dependency>
 ```
 
