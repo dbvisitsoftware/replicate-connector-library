@@ -61,6 +61,66 @@ public class LOBDataDecoderTest {
     }
     
     @Test
+    public void testDecodeEmptyCLOB() {
+        /* zero length CLOB */
+        final int []CLOB = { 0 };
+        final String EXPECTED = "";
+        final int LOBLEN = 0;
+        
+        try {
+            String decoded = LOBDataDecoder.decodeCLOB(
+                CLOB, 
+                LOBLEN
+            );
+            
+            logger.info (
+                "Decoded CLOB: " + decoded + ", providing LOB length: " + 
+                LOBLEN
+            );
+            
+            assertTrue (
+                "Expecting CLOB: " + EXPECTED + ", got: " + decoded,
+                decoded.equals(EXPECTED)
+            );
+        } catch (Exception e) {
+            e.printStackTrace();
+            fail (e.getMessage());
+        }
+    }
+    
+    @Test
+    public void testDecodeNullCLOB() {
+        /* NULL CLOB */
+        final int []CLOB = { };
+        final String EXPECTED = null;
+        final int LOBLEN = 0;
+        
+        try {
+            String decoded = LOBDataDecoder.decodeCLOB(
+                CLOB, 
+                LOBLEN
+            );
+            
+            logger.info (
+                "Decoded CLOB: " + (
+                    decoded != null
+                    ? decoded
+                    : "NULL"
+                ) + ", providing LOB length: " + 
+                LOBLEN
+            );
+            
+            assertTrue (
+                "Expecting NULL CLOB, got: " + decoded,
+                decoded == EXPECTED
+            );
+        } catch (Exception e) {
+            e.printStackTrace();
+            fail (e.getMessage());
+        }
+    }
+    
+    @Test
     public void testDecodeNCLOB() {
         /* UNITTEST SQL:
         
@@ -146,6 +206,79 @@ public class LOBDataDecoderTest {
                     decoded.equals(EXPECTED)
                 );
             }
+        } catch (Exception e) {
+            e.printStackTrace();
+            fail (e.getMessage());
+        }
+    }
+    
+    @Test
+    public void testDecodeEmptyBLOB() {
+        final int []BLOB = { 0 };
+        final String EXPECTED = "";
+        final int LOBLEN = 0;
+
+        try {
+            SerialBlob sb = LOBDataDecoder.decodeBLOB(
+                BLOB,
+                LOBLEN
+            );
+                
+            String decoded = 
+                DataDecoder.bytesToHex(
+                    (
+                        sb.length() == 0
+                        ? new byte [] {}
+                        : sb.getBytes(1, (int)sb.length())
+                    )
+                );
+                
+            logger.info (
+                "Decoded BLOB: " + decoded + ", providing LOB length: " + 
+                LOBLEN
+            );
+
+            assertTrue (
+                "Expecting BLOB: " + EXPECTED + ", got: " + decoded,
+                decoded.equals(EXPECTED)
+            );
+        } catch (Exception e) {
+            e.printStackTrace();
+            fail (e.getMessage());
+        }
+    }
+    
+    @Test
+    public void testDecodeNullBLOB() {
+        final int []BLOB = { };
+        final int LOBLEN = 0;
+
+        try {
+            SerialBlob sb = LOBDataDecoder.decodeBLOB(
+                BLOB,
+                LOBLEN
+            );
+                
+            logger.info (
+                "Decoded BLOB as " +
+                (
+                    sb != null
+                    ? DataDecoder.bytesToHex(sb.getBytes(1, (int)sb.length()))
+                    : "NULL"
+                ) +
+                ", providing LOB length: " + 
+                LOBLEN
+            );
+
+            assertTrue (
+                "Expecting NULL BLOB, got: " +
+                (
+                    sb != null
+                    ? DataDecoder.bytesToHex(sb.getBytes(1, (int)sb.length()))
+                    : "NULL"
+                ),
+                sb == null
+            );
         } catch (Exception e) {
             e.printStackTrace();
             fail (e.getMessage());
