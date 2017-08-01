@@ -30,7 +30,7 @@ import com.dbvisit.replicate.plog.domain.ChangeAction;
 import com.dbvisit.replicate.plog.domain.ColumnDataType;
 import com.dbvisit.replicate.plog.domain.ColumnValue;
 import com.dbvisit.replicate.plog.domain.DomainRecord;
-import com.dbvisit.replicate.plog.domain.LogicalChangeRecord;
+import com.dbvisit.replicate.plog.domain.ChangeRowRecord;
 import com.dbvisit.replicate.plog.file.PlogFile;
 import com.dbvisit.replicate.plog.format.EntryRecord;
 import com.dbvisit.replicate.plog.format.EntryTagRecord;
@@ -40,20 +40,21 @@ import com.dbvisit.replicate.plog.format.decoder.DataDecoder;
 import com.dbvisit.replicate.plog.format.decoder.LOBDataDecoder;
 import com.dbvisit.replicate.plog.format.decoder.SimpleDataDecoder;
 import com.dbvisit.replicate.plog.metadata.Column;
+import com.dbvisit.replicate.plog.metadata.DDLMetaData;
 import com.dbvisit.replicate.plog.metadata.Table;
 
 /**
- * Parses logical change record that represent the state of the source record
+ * Parses change row record that represent the state of the source record
  * after the logical change have been applied, a snapshot record at point in
  * time
  */
-public class LogicalChangeParser implements DomainParser {
+public class ChangeRowParser implements DomainParser {
     private static final Logger logger = LoggerFactory.getLogger(
-        LogicalChangeParser.class
+        ChangeRowParser.class
     );
     
     /** Current LCR being parsed */
-    private LogicalChangeRecord lcr;
+    protected ChangeRowRecord lcr;
     
     /* Merge multi-part data LCRs */
     private boolean mergeMultiPartLCRs = false;
@@ -65,7 +66,7 @@ public class LogicalChangeParser implements DomainParser {
     final DictionaryParser dictionaryParser = new DictionaryParser();
     
     /**
-     * Set wether or not to merge multi-part LCRs, this is needed because
+     * Set whether or not to merge multi-part LCRs, this is needed because
      * LOBs fields are encoded in separate LCR from column data LCR
      * 
      * @param mergeMultiPartLCRs whether or not multi-part LCRs should be
@@ -114,22 +115,24 @@ public class LogicalChangeParser implements DomainParser {
         if (rec.hasColumnData() && lcr.hasTableOwner()) {
             parseColumnData (plog, rec);
             
-            /* cache partial LCRs by their unique key, may be
-             * better to use a transaction entry queue */
-            LogicalChangeRecord partialLCR = 
-                plog.getPartialRecords().get(lcr.getUniqueKey());
-            
-            /* if needed merge data from multi-part LCRs into one */
-            if (mergeMultiPartLCRs && 
-                partialLCR != null &&
-                canMergeMultiPartLCR (plog, partialLCR, lcr))
-            {
-                mergeMultiPartLCR (partialLCR, lcr);
+            if (mergeMultiPartLCRs && !rec.isLOB()) {
+                /* cache partial LCRs by their unique key, may be
+                 * better to use a transaction entry queue */
+                ChangeRowRecord partialLCR = 
+                    plog.getPartialRecords().get(lcr.getUniqueKey());
                 
-                /* no need for previous LCR anymore */
-                plog.getPartialRecords().remove (
-                    lcr.getUniqueKey()
-                );
+                /* if needed merge data from multi-part LCRs into one */
+                if (mergeMultiPartLCRs && 
+                    partialLCR != null &&
+                    canMergeMultiPartLCR (plog, partialLCR, lcr))
+                {
+                    mergeMultiPartLCR (partialLCR, lcr);
+                    
+                    /* no need for previous LCR anymore */
+                    plog.getPartialRecords().remove (
+                        lcr.getUniqueKey()
+                    );
+                }
             }
             
             /* complete, unless partial LCR */
@@ -160,7 +163,7 @@ public class LogicalChangeParser implements DomainParser {
      */
     @Override
     public DomainRecord emit() {
-        LogicalChangeRecord result = null;
+        ChangeRowRecord result = null;
         
         if (lcr != null) {
             result = lcr;
@@ -221,8 +224,8 @@ public class LogicalChangeParser implements DomainParser {
      * @throws Exception when any merge error occurs
      */
     private void mergeMultiPartLCR (
-        LogicalChangeRecord prev, 
-        LogicalChangeRecord curr
+        ChangeRowRecord prev, 
+        ChangeRowRecord curr
     ) throws Exception 
     {
         if (prev.getTableId() != curr.getTableId() ||
@@ -284,8 +287,8 @@ public class LogicalChangeParser implements DomainParser {
      */
     private boolean canMergeMultiPartLCR (
         PlogFile plog,
-        LogicalChangeRecord partialLCR,
-        LogicalChangeRecord lcr
+        ChangeRowRecord partialLCR,
+        ChangeRowRecord lcr
     ) {
         boolean merge = false;
         
@@ -324,7 +327,7 @@ public class LogicalChangeParser implements DomainParser {
     private void createLCR (PlogFile plog, EntryRecord rec)
     throws Exception {
         try {
-            lcr = new LogicalChangeRecord();
+            lcr = new ChangeRowRecord();
             
             lcr.setAction(ChangeAction.find (rec.getSubType()));
             lcr.setIsMultiPart(rec.isLOB());
@@ -347,7 +350,7 @@ public class LogicalChangeParser implements DomainParser {
      * 
      * @throws Exception Failed to convert core LCR fields
      */
-    private void parseFields (PlogFile plog, EntryRecord rec) 
+    protected void parseFields (PlogFile plog, EntryRecord rec) 
     throws Exception {
         try {
             Map <EntryTagType, List<EntryTagRecord>> tags = 
@@ -471,7 +474,7 @@ public class LogicalChangeParser implements DomainParser {
      * @throws Exception if a meta data parse error occur, including
      *                   JSON de-serialization error
      */
-    private void parseDDLMetaDataJSON (PlogFile plog, EntryRecord rec)
+    protected void parseDDLMetaDataJSON (PlogFile plog, EntryRecord rec)
     throws Exception {
         synchronized (metaDataParser) {
             /* defer the work to meta data parser, if configured to read 
@@ -490,7 +493,7 @@ public class LogicalChangeParser implements DomainParser {
      * 
      * @throws Exception Failed to parse column data from PLOG entry
      */
-    private void parseColumnData (PlogFile plog, EntryRecord rec) 
+    protected void parseColumnData (PlogFile plog, EntryRecord rec) 
     throws Exception {
         /* parse value tags */
         Map <EntryTagType, List<EntryTagRecord>> tags = rec.getEntryTags();
@@ -622,10 +625,47 @@ public class LogicalChangeParser implements DomainParser {
             int c = 0;
             for (Column column : table.getColumns()) {
                 if (columnIdxMask[c]) {
-                    /* attach meta data */
+                    /* prepare default meta data for column value */
                     ColumnValue cdr = columnValues.get (c);
                     cdr.setName (column.getName());
-                    cdr.setType (ColumnDataType.UNKNOWN.find(column.getType()));    
+                    cdr.setType (ColumnDataType.UNKNOWN.find(column.getType()));
+                    
+                    /* dictionary table and column key are from constraints */
+                    if (table.hasKey()) {
+                        /* set key as is, use key constraints */
+                        cdr.setIsKeyValue (column.isKey());
+                    }
+                    else if (
+                        !table.hasKey() && 
+                        !column.isKey() &&
+                        !tags.containsKey (EntryTagType.TAG_KEYIMAGE) &&
+                        column.canUseAsSuplogKey()
+                    ) {
+                        logger.debug (
+                            "Setting key for column: " + column.getName()  +
+                            " action: " + lcr.getAction() + " for table: " +
+                            table.getFullName() + " without a key definition"
+                        );
+                        /* there is no key constraints or key images (either
+                         * from constraint or suplog) but this column value
+                         * can be treated as key if needed
+                         */
+                        cdr.setIsKeyValue(true);
+                        
+                        /* force it to be treated as if it was a key */
+                        column.setIsKey(true);
+                        
+                        if (plog.getSchemas().containsKey (schema)) {
+                            DDLMetaData md = plog.getSchemas().get (schema);
+                            
+                            if (!md.hasKey()) {
+                                Column col = md.getTableColumns().get(c);
+                                if (!col.isKey()) {
+                                    col.setIsKey(true);
+                                }
+                            }
+                        }
+                    }
                 }
                 c++;
             }
@@ -690,7 +730,7 @@ public class LogicalChangeParser implements DomainParser {
         
         /* supplemental key columns are sequential */
         int numKeys = 0;
-
+        
         /* build the list of tags to go through in the correct order */
         recs = new LinkedList<EntryTagRecord>();
         List<List<EntryTagRecord>> datasets = 
@@ -735,9 +775,37 @@ public class LogicalChangeParser implements DomainParser {
                 
             ColumnValue cdr = columnValues.get (idx);
             
-            /* tags are in correct order, set which ones are part of key */
-            if (t < numKeys) {
-                cdr.setIsKey(true);
+            /* tags are in correct order, set which ones are part of key 
+             * we ignore LOBs in key image */
+            if (t < numKeys && !rec.isLOB()) {
+                /* these are part of KEY image, may not be a real column key
+                 * as identified by constraints, for a table with no key
+                 * constraints the KEY image will contain all columns, used
+                 * in unique key for merging multi-part LCRs
+                 */
+                cdr.setIsSupLogKey(true);
+                
+                /* this is a fall back for PLOGs with a JSON meta data format
+                 * that has no column key information
+                 */
+                if (plog.getSchemas().containsKey (schema)) {
+                    DDLMetaData md = plog.getSchemas().get (schema);
+                    
+                    if (!md.hasKey()) {
+                        /* we have key image, apply it, this is not an INSERT */
+                        Column col =
+                            md.getTableColumns().get(idx);
+                        /* check schema meta data for tag */
+                        if (!col.isKey()) {
+                            logger.debug (
+                                "Older PLOG JSON format found - setting " +
+                                "missing key for column: " + col.getName()
+                            );
+                            /* use suplog key for older JSON format */
+                            col.setIsKey(true);
+                        }
+                    }
+                }
             }
 
             parseColumnValue (plog, rec, tag, cdr);
@@ -797,7 +865,7 @@ public class LogicalChangeParser implements DomainParser {
                 if (
                     scale > 0 ||
                     metadata.getPrecision() <= 0 ||
-                    metadata.getPrecision() - scale > 
+                    metadata.getPrecision() - scale >= 
                         DataDecoder.NUMBER_LONG_MAX_PRECISION
                 ) {
                     columnValue.setValue (

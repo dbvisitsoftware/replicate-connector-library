@@ -46,12 +46,19 @@ public class TransactionInfoParserTest extends ChangeParserTestConfig {
     @Test
     public void testParseInsertLCRSet() {
         try {
-            plog = new PlogFile() {
+            /* dummy plog with NULL domain reader */
+            plog = new PlogFile(null) {
                 public boolean canUse() {
                     return true;
                 }
                 public boolean isCompact() {
                     return true;
+                }
+                public String getFullPath() {
+                    return "/dev/null";
+                }
+                public String getFileName() {
+                    return "mock-plog";
                 }
                 public int getId() {
                     return 1;

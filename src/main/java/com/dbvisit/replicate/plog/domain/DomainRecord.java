@@ -140,15 +140,20 @@ public abstract class DomainRecord implements FilterableRecord<DomainRecordType>
     }
     
     /**
-     * Whether or not this domain record is a change record.
+     * Whether or not this domain record is a change row record.
      * 
-     * @see LogicalChangeRecord
+     * @see ChangeRowRecord
      * 
-     * @return true if instance of <em>LogicalChangeRecord</em>, else false
+     * @return true if instance of <em>ChangeRowRecord</em>, else false
      */
     @JsonIgnore
-    public boolean isChangeRecord () {
-        return recordType.equals (DomainRecordType.CHANGE_RECORD);
+    public boolean isChangeRowRecord () {
+        return recordType.equals (DomainRecordType.CHANGEROW_RECORD);
+    }
+    
+    @JsonIgnore
+    public boolean isChangeSetRecord () {
+        return recordType.equals (DomainRecordType.CHANGESET_RECORD);
     }
     
     /**

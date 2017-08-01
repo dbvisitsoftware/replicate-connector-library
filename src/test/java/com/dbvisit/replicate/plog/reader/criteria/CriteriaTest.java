@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory;
 import com.dbvisit.replicate.plog.domain.DomainRecord;
 import com.dbvisit.replicate.plog.domain.ReplicateOffset;
 import com.dbvisit.replicate.plog.domain.parser.DomainParser;
-import com.dbvisit.replicate.plog.domain.parser.LogicalChangeParser;
+import com.dbvisit.replicate.plog.domain.parser.ChangeRowParser;
 import com.dbvisit.replicate.plog.domain.parser.MetaDataParser;
 import com.dbvisit.replicate.plog.domain.parser.ProxyDomainParser;
 import com.dbvisit.replicate.plog.domain.parser.TransactionInfoParser;
@@ -68,25 +68,38 @@ public class CriteriaTest {
     protected final int TABLE_3_META_COUNT = 1;
     protected final int TABLE_3_DATA_BYTE_OFFSET = 7472;
     
-    protected PlogFile openAndValidatePLOG () throws Exception {
+    @SuppressWarnings("rawtypes")
+    protected PlogStreamReader openAndValidatePLOG (
+        Criteria parseCriteria
+    ) throws Exception {
         InputStream is = new ByteArrayInputStream (dataByteArray);
         DataInputStream dis = new DataInputStream (is);
         
+        DomainReader r = DomainReader.builder()
+            .parseCriteria(parseCriteria)
+            .persistCriteria(persistCriteria)
+            .domainParsers(domainParsers)
+            .flushLastTransactions(true)
+            .build();
+        
         /* make a fake PLOG */
-        PlogFile p = new PlogFile();
+        PlogFile p = new PlogFile(r) {
+            public boolean canUse() {
+                return true;
+            }
+            public boolean isCompact() {
+                return true;
+            }
+            public String getFullPath() {
+                return "/dev/null";
+            }
+            public String getFileName() {
+                return "mock-plog";
+            }
+        };
         
-        PlogStreamReader psr = new PlogStreamReader();
-        p.setReader(psr);
-        
-        DomainReader r = psr.getDomainReader();
-        
-        r.setDomainParsers(domainParsers);
-
-        psr.setPlog(p);
-        psr.setPlogStream(dis);
-        r.setPersistCriteria(persistCriteria);
-        r.enableFlushLastTransactions();
-        psr.prepare();
+        PlogStreamReader psr = new PlogStreamReader(p, r, dis);
+        psr.open();
         
         assertTrue (
             "Expecting valid PLOG stream",
@@ -99,26 +112,35 @@ public class CriteriaTest {
             psr.getOffset() >= PlogFile.PLOG_DATA_BYTE_OFFSET
         );
         
-        return p;
+        return psr;
     }
     
     protected void testPLOGTableOffsets () throws Exception {
         InputStream is = new ByteArrayInputStream (dataByteArray);
         DataInputStream dis = new DataInputStream (is);
-        
-        PlogFile p = new PlogFile();
-        
-        PlogStreamReader psr = new PlogStreamReader();
-        p.setReader(psr);
-        
-        DomainReader r = psr.getDomainReader();
-        
-        r.setDomainParsers(domainParsers);
-
-        psr.setPlog(p);
-        psr.setPlogStream(dis);
-        r.setPersistCriteria(persistCriteria);
-        r.enableFlushLastTransactions();
+        DomainReader r = DomainReader.builder()
+            .persistCriteria(persistCriteria)
+            .domainParsers(domainParsers)
+            .flushLastTransactions(true)
+            .build();
+            
+        /* make a fake PLOG */
+        PlogFile p = new PlogFile(r) {
+            public boolean canUse() {
+                return true;
+            }
+            public boolean isCompact() {
+                return true;
+            }
+            public String getFullPath() {
+                return "/dev/null";
+            }
+            public String getFileName() {
+                return "mock-plog";
+            }
+        };
+            
+        PlogStreamReader psr = new PlogStreamReader(p, r, dis);
         psr.prepare();
         
         assertTrue (
@@ -150,7 +172,7 @@ public class CriteriaTest {
                          - dr.getRawRecordSize())
                 );
                 
-                if (dr.isChangeRecord()) {
+                if (dr.isChangeRowRecord()) {
                     assertTrue (
                         "Check file offsets, previous offset:" + 
                         prevOffset + " current offset: " + 
@@ -189,7 +211,7 @@ public class CriteriaTest {
             put (
                 EntryType.ETYPE_CONTROL, 
                 new DomainParser[] { 
-                    new LogicalChangeParser() 
+                    new ChangeRowParser() 
                 }
             );
             put (
@@ -201,7 +223,7 @@ public class CriteriaTest {
             put (
                 EntryType.ETYPE_LCR_DATA,
                 new DomainParser[] {
-                    new LogicalChangeParser(),
+                    new ChangeRowParser(),
                     txParser
                 }
             );

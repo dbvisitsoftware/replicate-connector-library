@@ -257,6 +257,8 @@ public class ColumnDataDecoderTest {
             7, 17396856, 65793
         };
         
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        
         DateFormat dateFormat = new SimpleDateFormat("yyyy/MM/dd");
         Timestamp EXPECTED = null;
         
@@ -283,6 +285,7 @@ public class ColumnDataDecoderTest {
         }
     }
     
+    @SuppressWarnings("deprecation")
     @Test
     public void testDecodeTimestamp() {
         /* UNITTEST SQL:
@@ -294,6 +297,8 @@ public class ColumnDataDecoderTest {
         final int []TIMESTAMP = {
             7, 17396856, 131329
         };
+        
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
         
         DateFormat dateFormat = new SimpleDateFormat("yyyy/MM/dd hh:mm:ss");
         Timestamp EXPECTED = null;
@@ -309,7 +314,14 @@ public class ColumnDataDecoderTest {
         try {
             Timestamp decoded = ColumnDataDecoder.decodeTimestamp(TIMESTAMP);
             
-            logger.info ("Decoded Timestamp: " + decoded);
+            logger.info (
+                "Decoded Timestamp: " + decoded.getTime() + " " + 
+                decoded.getTimezoneOffset()
+            );
+            logger.info (
+                "Expected Timestamp: " + EXPECTED.getTime() + " " + 
+                EXPECTED.getTimezoneOffset()
+            );
 
             assertTrue (
                 "Expecting Timestamp: " + EXPECTED + ", got: " + decoded,
@@ -321,6 +333,7 @@ public class ColumnDataDecoderTest {
         }
     }
     
+    @SuppressWarnings("deprecation")
     @Test
     public void testDecodeTimestampWithTz() {
         /* UNITTEST SQL:
@@ -333,17 +346,25 @@ public class ColumnDataDecoderTest {
             13, 520647800, 131341, -805306368, 4
         };
         
-        DateFormat dateFormat = new SimpleDateFormat("yyyy/MM/dd hh:mm:ss");
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        
+        logger.info ("Default TZ: " + TimeZone.getDefault());
+        
+        DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.S");
         dateFormat.setTimeZone(TimeZone.getTimeZone("Pacific/Auckland"));
-        DateFormat dateFormatUTC = new SimpleDateFormat("yyyy/MM/dd hh:mm:ss");
+        DateFormat dateFormatUTC = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.S");
         dateFormatUTC.setTimeZone(TimeZone.getTimeZone("UTC"));
-        Timestamp EXPECTED = null;
+        String EXPECTED = null;
         
         try {
-            Date dtz = dateFormat.parse("2016/09/01 00:00:01");
-            Date d = dateFormatUTC.parse(dateFormatUTC.format(dtz));
+            Date dtz = dateFormat.parse("2016-09-01 00:00:01.0");
+            EXPECTED = dateFormatUTC.format(dtz);
             
-            EXPECTED = new Timestamp (d.getTime());
+            logger.info ("Expecting: " + EXPECTED);
+            logger.info (
+                "dtz epoch : " + dtz.getTime() + " " + 
+                "tz: " + dtz.getTimezoneOffset()
+            );
         } catch (Exception e) {
             e.printStackTrace();
             fail (e.getMessage());
@@ -353,12 +374,20 @@ public class ColumnDataDecoderTest {
             Timestamp decoded = 
                 ColumnDataDecoder.decodeTimestampWithTz(TIMESTAMP_WITH_TIME_ZONE);
             
-            logger.info ("Decoded Timestamp with time zone: " + decoded);
+            logger.info (
+                "Decoded Timestamp with time zone: " + decoded.toString()
+            );
+            
+            logger.info (
+                "Decoded epoch time: " + decoded.getTime() + " tz: " +
+                decoded.getTimezoneOffset()
+            );
 
             assertTrue (
-                "Expecting Timestamp with time zone: " + EXPECTED + ", got: " +
-                decoded,
-                decoded.equals(EXPECTED)
+                "Expecting Timestamp with time zone: " + 
+                EXPECTED + ", got: " +
+                decoded.toString(),
+                decoded.toString().equals(EXPECTED)
             );
         } catch (Exception e) {
             e.printStackTrace();

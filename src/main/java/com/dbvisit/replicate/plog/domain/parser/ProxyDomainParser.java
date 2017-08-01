@@ -337,32 +337,32 @@ public class ProxyDomainParser implements DomainParser {
     private void openChildPlog (PlogFile parent) throws Exception {
         logger.info ("Opening child PLOG: " + childId + " " + plogName);
         
+        /* inherit domain reader behavior from parent */
+        DomainReader parentReader = parent.getReader().getDomainReader();
+        
+        Map<EntryType, DomainParser[]> copyOfParsers = 
+            new HashMap<EntryType, DomainParser[]>();
+        copyOfParsers.putAll(parentReader.getDomainParsers());
+        /* remove IFILE parser, aka this parser */
+        copyOfParsers.remove (EntryType.ETYPE_LCR_PLOG);
+            
         childPlog = new PlogFile (
             parent.getId(),
             childId,
             parent.getTimestamp(),
             parent.getBaseDirectory(),
-            plogFileName
+            plogFileName,
+            DomainReader.builder()
+                .parseCriteria(parentReader.getParseCriteria())
+                .filterCriteria(parentReader.getFilterCriteria())
+                .persistCriteria(parentReader.getPersistCriteria())
+                .domainParsers(copyOfParsers)
+                .aggregateReader(parentReader.isAggregateReader())
+                .flushLastTransactions(parentReader.shouldFlushLastTransactions())
+                .build()
         );
         
         childPlog.open();
-        
-        /* inherit domain reader behavior from parent */
-        DomainReader parentReader = parent.getReader().getDomainReader();
-        DomainReader childReader = childPlog.getReader().getDomainReader();
-        
-        Map<EntryType, DomainParser[]> copyOfParsers = 
-            new HashMap<EntryType, DomainParser[]>();
-            
-        copyOfParsers.putAll(parentReader.getDomainParsers());
-        childReader.setDomainParsers(copyOfParsers);
-        /* remove IFILE parser, aka this parser */
-        childReader.getDomainParsers().remove (EntryType.ETYPE_LCR_PLOG);
-        childReader.setParseCriteria(parentReader.getParseCriteria());
-        childReader.setFilterCriteria(parentReader.getFilterCriteria());
-        childReader.setPersistCriteria(parentReader.getPersistCriteria());
-        childReader.setIsAggregateReader(parentReader.isAggregateReader());
-        childReader.enableFlushLastTransactions();
         
         /* get parent's cache */
         childPlog.copyCacheFrom(parent);

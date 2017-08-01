@@ -2,37 +2,122 @@ package com.dbvisit.replicate.plog.domain.parser;
 
 import static org.junit.Assert.*;
 
+import org.junit.Test;
+
 import java.math.BigDecimal;
-import java.util.Date;
+import java.sql.Timestamp;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
 import java.util.TimeZone;
-import java.sql.Timestamp;
 
 import javax.sql.rowset.serial.SerialBlob;
 
-import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.dbvisit.replicate.plog.domain.ChangeAction;
+import com.dbvisit.replicate.plog.domain.ChangeSetRecord;
 import com.dbvisit.replicate.plog.domain.ColumnValue;
-import com.dbvisit.replicate.plog.domain.LogicalChangeRecord;
 import com.dbvisit.replicate.plog.format.EntryRecord;
 import com.dbvisit.replicate.plog.metadata.Column;
 import com.dbvisit.replicate.plog.metadata.DDLMetaData;
 
-/** Test parsing single entry record to LCR, verifies PLOG parsing of 
- *  Entry Records as well.
- */
-public class LogicalChangeParserTest extends ChangeParserTestConfig {
+public class ChangeSetParserTest extends ChangeParserTestConfig {
+
     private static final Logger logger = LoggerFactory.getLogger(
-        LogicalChangeParserTest.class
+        ChangeSetParserTest.class
     );
     
-    private final int LCR_INSERT_NUM_ENTRY_RECORDS    = 6;
-    private final int LCR_LOB_WRITE_NUM_ENTRY_RECORDS = 7;
+    private static int LCR_UPDATE_NUM_ENTRY_RECORDS = 4;
+    private static int LCR_UPDATE_NUM_KEY_COLUMNS = 2;
+    private static int LCR_UPDATE_NUM_OLD_COLUMNS = 0;
+    private static int LCR_UPDATE_NUM_NEW_COLUMNS = 1;
+    private static int LCR_INSERT_NUM_KEY_COLUMNS = 0;
+    private static int LCR_INSERT_NUM_OLD_COLUMNS = 0;
+    private static int LCR_INSERT_NUM_NEW_COLUMNS = 1;
+    private static int LCR_LOBWRITE_NUM_KEY_COLUMNS = 0;
+    private static int LCR_LOBWRITE_NUM_OLD_COLUMNS = 0;
+    private static int LCR_LOBWRITE_NUM_NEW_COLUMNS = 0;
+    
+    private final ChangeAction[] LCR_UPDATE_CHANGE_ACTIONS = {
+        ChangeAction.NONE,
+        ChangeAction.NO_OPERATION,
+        ChangeAction.UPDATE,
+        ChangeAction.NONE
+    };
+           
+    @Test
+    public void testParseUpdateLCR () {
+        try {
+            byte[] lcrData = updateValueLCR();
+            
+            List<EntryRecord> records = parseEntryRecord (lcrData);
+            
+            assertTrue (
+                "Expecting " + LCR_UPDATE_NUM_ENTRY_RECORDS + " entry records, " +
+                "got: " + records.size(),
+                records.size() == LCR_UPDATE_NUM_ENTRY_RECORDS
+            );
+            
+            ChangeSetParser csp = new ChangeSetParser();
+            
+            for (int i = 0; i < LCR_UPDATE_NUM_ENTRY_RECORDS; i++) {
+                csp.parse(plog, records.get(i));
+            
+                ChangeSetRecord csr = (ChangeSetRecord)csp.emit();
+
+                logger.info ("[" + i + "]: " + csr.toJSONString());
+                
+                assertTrue (
+                    "Expecting LCR action: " + LCR_UPDATE_CHANGE_ACTIONS[i] +
+                    " , got: " + csr.getAction(),
+                    csr.getAction().equals (LCR_UPDATE_CHANGE_ACTIONS[i])
+                );
+                
+                if (i == 2) {
+                    assertTrue (
+                        "Must be UPDATE",
+                        csr.getAction().equals (ChangeAction.UPDATE)
+                    );
+                
+                    assertTrue (
+                        "Expecting " + LCR_UPDATE_NUM_KEY_COLUMNS + " " + 
+                        "key column values, got: " +
+                        csr.getKeyValues().size(),
+                        csr.getKeyValues().size() == LCR_UPDATE_NUM_KEY_COLUMNS
+                    );
+                    
+                    assertTrue (
+                        "Expecting " + LCR_UPDATE_NUM_OLD_COLUMNS + " " + 
+                        "old column values, got: " +
+                        csr.getOldValues().size(),
+                        csr.getOldValues().size() == LCR_UPDATE_NUM_OLD_COLUMNS
+                    );
+                
+                    assertTrue (
+                        "Expecting " + LCR_UPDATE_NUM_NEW_COLUMNS + " " + 
+                        "new column values, got: " +
+                        csr.getNewValues().size(),
+                        csr.getNewValues().size() == LCR_UPDATE_NUM_NEW_COLUMNS
+                    );
+                }
+            }
+            
+            plog.getSchemas().clear();
+            plog.getDictionary().clear();
+            
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+            fail(e.getMessage());
+        }
+    }
+    
+    
+    private static int LCR_INSERT_NUM_ENTRY_RECORDS    = 6;
+    private static int LCR_LOB_WRITE_NUM_ENTRY_RECORDS = 7;
     
     private final ChangeAction[] LCR_INSERT_CHANGE_ACTIONS = {
         ChangeAction.NONE,         /* DDL METADATA_RECORD as LCR for CREATE */
@@ -302,15 +387,16 @@ public class LogicalChangeParserTest extends ChangeParserTestConfig {
         final int COLUMN_PRECISION = -1;
         final int COLUMN_SCALE = 6;
         
-        DateFormat dateFormat = new SimpleDateFormat("yyyy/MM/dd hh:mm:ss");
-        dateFormat.setTimeZone(TimeZone.getTimeZone("Pacific/Auckland"));
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
         
-        DateFormat dateFormatUTC = new SimpleDateFormat("yyyy/MM/dd hh:mm:ss");
+        DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.S");
+        dateFormat.setTimeZone(TimeZone.getTimeZone("Pacific/Auckland"));
+        DateFormat dateFormatUTC = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.S");
         dateFormatUTC.setTimeZone(TimeZone.getTimeZone("UTC"));
         
         Object COLUMN_VALUE = null;
         try {
-            Date dtz = dateFormat.parse("2016/09/01 00:00:01");
+            Date dtz = dateFormat.parse("2016-09-01 00:00:01.0");
             Date d = dateFormatUTC.parse(dateFormatUTC.format(dtz));
             
             COLUMN_VALUE = new Timestamp (d.getTime());
@@ -473,22 +559,22 @@ public class LogicalChangeParserTest extends ChangeParserTestConfig {
                 records.size() == LCR_INSERT_NUM_ENTRY_RECORDS
             );
             
-            LogicalChangeParser lp = new LogicalChangeParser();
+            ChangeSetParser csp = new ChangeSetParser();
             
             for (int i = 0; i < LCR_INSERT_NUM_ENTRY_RECORDS; i++) {
-                lp.parse(plog, records.get(i));
+                csp.parse(plog, records.get(i));
             
-                LogicalChangeRecord lcr = (LogicalChangeRecord)lp.emit();
+                ChangeSetRecord csr = (ChangeSetRecord)csp.emit();
 
-                logger.info ("[" + i + "]: " + lcr.toJSONString());
+                logger.info ("[" + i + "]: " + csr.toJSONString());
                 
                 assertTrue (
                     "Expecting LCR action: " + LCR_INSERT_CHANGE_ACTIONS[i] +
-                    " , got: " + lcr.getAction(),
-                    lcr.getAction().equals (LCR_INSERT_CHANGE_ACTIONS[i])
+                    " , got: " + csr.getAction(),
+                    csr.getAction().equals (LCR_INSERT_CHANGE_ACTIONS[i])
                 );
                 
-                if (lcr.getAction().equals (ChangeAction.NONE)) {
+                if (csr.getAction().equals (ChangeAction.NONE)) {
                     if (createDDL) {
                         /* LCR NONE is META DATA */
                         assertTrue (
@@ -522,13 +608,13 @@ public class LogicalChangeParserTest extends ChangeParserTestConfig {
                             columnPrecision + " scale: " + columnScale  +
                             " nullable: " + COLUMN_NULLABLE + ", got: " + 
                             c.toString() + " " + c.getPrecision()       +
-                            " " + c.getScale() + " " + c.getNullable(),
+                            " " + c.getScale() + " " + c.isNullable(),
                             c.getName().equals (COLUMN_NAME) &&
                             c.getType().equals (columnType) &&
                             c.getPrecision() == columnPrecision &&
                             c.getScale() == columnScale &&
-                            c.getNullable() == COLUMN_NULLABLE
-                        );
+                            c.isNullable() == COLUMN_NULLABLE
+                       );
                     }
                     else {
                         /* drop DDL */
@@ -554,47 +640,39 @@ public class LogicalChangeParserTest extends ChangeParserTestConfig {
                     }
                 }
                 
-                if (lcr.getAction().equals (ChangeAction.INSERT)) {
-                    /* for dumping out entry record raw data
-                    System.out.print (
-                        "int []" +
-                        columnType + " (" + columnPrecision + ", " + 
-                        columnScale + ") = "
+                if (csr.getAction().equals (ChangeAction.INSERT)) {
+                    /* for INSERT we only have NEW values */
+                    assertTrue (
+                        "Expecting " + LCR_INSERT_NUM_KEY_COLUMNS + " " + 
+                        "key column values, got: " +
+                        csr.getKeyValues().size(),
+                        csr.getKeyValues().size() == LCR_INSERT_NUM_KEY_COLUMNS
                     );
-                    int []data = 
-                        records.get(i)
-                               .getEntryTags()
-                               .get(EntryTagType.TAG_POSTIMAGE)
-                               .get(0)
-                               .getRawData();
-                    
-                    System.out.print ("{ ");
-                    for (int d = 0; d < data.length; d++) {
-                        if (d > 0) {
-                            System.out.print (", ");
-                        }
-                        System.out.print (data[d]);
-                    }
-                    System.out.println (" };");
-                    */
+                        
+                    assertTrue (
+                        "Expecting " + LCR_INSERT_NUM_OLD_COLUMNS + " " + 
+                        "old column values, got: " +
+                        csr.getOldValues().size(),
+                        csr.getOldValues().size() == LCR_INSERT_NUM_OLD_COLUMNS
+                    );
                     
                     assertTrue (
-                        "Expecting " + NUM_COLUMNS + " column values, got: " +
-                        lcr.getColumnValues().size(),
-                        lcr.getColumnValues().size() == NUM_COLUMNS
+                        "Expecting " + LCR_INSERT_NUM_NEW_COLUMNS + " " + 
+                        "new column values, got: " +
+                        csr.getNewValues().size(),
+                        csr.getNewValues().size() == LCR_INSERT_NUM_NEW_COLUMNS
                     );
                     
-                    ColumnValue cr = lcr.getColumnValues().get(0);
-                    
+                    ColumnValue cv = csr.getNewValues().get(0);
                     assertTrue (
                         "Expecting column id: " + COLUMN_ID + " name: " + 
                         COLUMN_NAME + " value: " + columnValue + ", got: "+
-                        cr.toString(),
-                        cr.getId() == COLUMN_ID &&
-                        cr.getName().equals(COLUMN_NAME) &&
-                        (cr.getValue() instanceof SerialBlob 
-                         ? cr.getValueAsString().equals(columnValue)
-                         : cr.getValue().equals(columnValue))
+                        cv.toString(),
+                        cv.getId() == COLUMN_ID &&
+                        cv.getName().equals(COLUMN_NAME) &&
+                        (cv.getValue() instanceof SerialBlob 
+                         ? cv.getValueAsString().equals(columnValue)
+                         : cv.getValue().equals(columnValue))
                     );
                 }
             }
@@ -610,146 +688,139 @@ public class LogicalChangeParserTest extends ChangeParserTestConfig {
     }
 
     public void testParseLobWriteLCR(
-            byte[] lcrData,
-            String columnType,
-            Object columnValue
-        ) {
-            boolean createDDL = true;
+        byte[] lcrData,
+        String columnType,
+        Object columnValue
+    ) {
+        boolean createDDL = true;
+        
+        try {
+            List<EntryRecord> records = parseEntryRecord (lcrData);
             
-            try {
-                List<EntryRecord> records = parseEntryRecord (lcrData);
+            assertTrue (
+                "Expecting " + LCR_LOB_WRITE_NUM_ENTRY_RECORDS + 
+                " entry records, " + "got: " + records.size(),
+                records.size() == LCR_LOB_WRITE_NUM_ENTRY_RECORDS
+            );
+            
+            ChangeSetParser csp = new ChangeSetParser();
+            
+            for (int i = 0; i < LCR_LOB_WRITE_NUM_ENTRY_RECORDS; i++) {
+                csp.parse(plog, records.get(i));
+            
+                ChangeSetRecord csr = (ChangeSetRecord)csp.emit();
+
+                logger.info ("[" + i + "]: " + csr.toJSONString());
                 
                 assertTrue (
-                    "Expecting " + LCR_LOB_WRITE_NUM_ENTRY_RECORDS + 
-                    " entry records, " + "got: " + records.size(),
-                    records.size() == LCR_LOB_WRITE_NUM_ENTRY_RECORDS
+                    "Expecting LCR action: " + LCR_LOB_WRITE_CHANGE_ACTIONS[i] +
+                    " , got: " + csr.getAction(),
+                    csr.getAction().equals (LCR_LOB_WRITE_CHANGE_ACTIONS[i])
                 );
                 
-                LogicalChangeParser lp = new LogicalChangeParser();
-                
-                for (int i = 0; i < LCR_LOB_WRITE_NUM_ENTRY_RECORDS; i++) {
-                    lp.parse(plog, records.get(i));
-                
-                    LogicalChangeRecord lcr = (LogicalChangeRecord)lp.emit();
-
-                    logger.info ("[" + i + "]: " + lcr.toJSONString());
-                    
-                    assertTrue (
-                        "Expecting LCR action: " + LCR_LOB_WRITE_CHANGE_ACTIONS[i] +
-                        " , got: " + lcr.getAction(),
-                        lcr.getAction().equals (LCR_LOB_WRITE_CHANGE_ACTIONS[i])
-                    );
-                    
-                    if (lcr.getAction().equals (ChangeAction.NONE)) {
-                        if (createDDL) {
-                            /* LCR NONE is META DATA */
-                            assertTrue (
-                                "Expecting one cached PLOG schema: " + LCR_SCHEMA + 
-                                " ,got: " + plog.getSchemas().size() + " schemas, " +
-                                plog.getSchemas().keySet().toString(),
-                                plog.getSchemas().size() == 1 &&
-                                plog.getSchemas().containsKey(LCR_SCHEMA)
-                            );
-                            createDDL = false;
-                            
-                            DDLMetaData ddl = plog.getSchemas().get (LCR_SCHEMA);
-                            
-                            assertTrue (
-                                "Expecting DDL MetaData for: " + LCR_SCHEMA + ", " +
-                                "got: " + ddl.getSchemataName(),
-                                ddl.getSchemataName().equals (LCR_SCHEMA)
-                            );
-                            
-                            assertTrue (
-                                "Expecting " + NUM_COLUMNS + "columns, got: " +
-                                ddl.getTableColumns().size(),
-                                ddl.getTableColumns().size() == NUM_COLUMNS
-                            );
-                            
-                            Column c = ddl.getTableColumns().get(0);
-                            
-                            assertTrue (
-                                "Expecting column name: " + COLUMN_NAME +
-                                " type: " + columnType + ", got: "      + 
-                                c.toString(),
-                                c.getName().equals (COLUMN_NAME) &&
-                                c.getType().equals (columnType)
-                           );
-                        }
-                        else {
-                            /* drop DDL */
-                            assertTrue (
-                                "Expecting two cached PLOG schemas when " + 
-                                "dropping: " + LCR_SCHEMA + " ,got: " + 
-                                plog.getSchemas().size() + " schemas, " +
-                                plog.getSchemas().keySet().toString(),
-                                plog.getSchemas().size() == 2 &&
-                                plog.getSchemas().containsKey(LCR_SCHEMA)
-                            );
-                            
-                            plog.getSchemas().remove (LCR_SCHEMA);
-                            
-                            Object []keys = plog.getSchemas().keySet().toArray();
-                            String drop = (String)keys[0];
-                            
-                            assertTrue (
-                                "Expecting second DDL to be for DROP table: " +
-                                LCR_SCHEMA,
-                                drop.startsWith("SOE.BIN")
-                            );
-                        }
+                if (csr.getAction().equals (ChangeAction.NONE)) {
+                    if (createDDL) {
+                        /* LCR NONE is META DATA */
+                        assertTrue (
+                            "Expecting one cached PLOG schema: " + LCR_SCHEMA + 
+                            " ,got: " + plog.getSchemas().size() + " schemas, " +
+                            plog.getSchemas().keySet().toString(),
+                            plog.getSchemas().size() == 1 &&
+                            plog.getSchemas().containsKey(LCR_SCHEMA)
+                        );
+                        createDDL = false;
+                        
+                        DDLMetaData ddl = plog.getSchemas().get (LCR_SCHEMA);
+                        
+                        assertTrue (
+                            "Expecting DDL MetaData for: " + LCR_SCHEMA + ", " +
+                            "got: " + ddl.getSchemataName(),
+                            ddl.getSchemataName().equals (LCR_SCHEMA)
+                        );
+                        
+                        assertTrue (
+                            "Expecting " + NUM_COLUMNS + "columns, got: " +
+                            ddl.getTableColumns().size(),
+                            ddl.getTableColumns().size() == NUM_COLUMNS
+                        );
+                        
+                        Column c = ddl.getTableColumns().get(0);
+                        
+                        assertTrue (
+                            "Expecting column name: " + COLUMN_NAME +
+                            " type: " + columnType + ", got: "      + 
+                            c.toString(),
+                            c.getName().equals (COLUMN_NAME) &&
+                            c.getType().equals (columnType)
+                       );
                     }
-                    
-                    if (lcr.getAction().equals (ChangeAction.LOB_WRITE)) {
-                        /* for dumping out entry record raw data
-                        System.out.print (
-                            "int []" + columnType + " = "
-                        );
-                        int []data = 
-                            records.get(i)
-                                   .getEntryTags()
-                                   .get(EntryTagType.TAG_LOBDATA)
-                                   .get(0)
-                                   .getRawData();
-                        
-                        System.out.print ("{ ");
-                        for (int d = 0; d < data.length; d++) {
-                            if (d > 0) {
-                                System.out.print (", ");
-                            }
-                            System.out.print (data[d]);
-                        }
-                        System.out.println (" };");
-                        */
-                        
+                    else {
+                        /* drop DDL */
                         assertTrue (
-                            "Expecting " + NUM_COLUMNS + " column values, got: " +
-                            lcr.getColumnValues().size(),
-                            lcr.getColumnValues().size() == NUM_COLUMNS
+                            "Expecting two cached PLOG schemas when " + 
+                            "dropping: " + LCR_SCHEMA + " ,got: " + 
+                            plog.getSchemas().size() + " schemas, " +
+                            plog.getSchemas().keySet().toString(),
+                            plog.getSchemas().size() == 2 &&
+                            plog.getSchemas().containsKey(LCR_SCHEMA)
                         );
                         
-                        ColumnValue cr = lcr.getColumnValues().get(0);
+                        plog.getSchemas().remove (LCR_SCHEMA);
+                        
+                        Object []keys = plog.getSchemas().keySet().toArray();
+                        String drop = (String)keys[0];
                         
                         assertTrue (
-                            "Expecting column id: " + COLUMN_ID + " name: " + 
-                            COLUMN_NAME + " value: " + columnValue + ", got: "+
-                            cr.toString(),
-                            cr.getId() == COLUMN_ID &&
-                            cr.getName().equals(COLUMN_NAME) &&
-                            (cr.getValue() instanceof SerialBlob 
-                             ? cr.getValueAsString().equals(columnValue)
-                             : cr.getValue().equals(columnValue))
+                            "Expecting second DDL to be for DROP table: " +
+                            LCR_SCHEMA,
+                            drop.startsWith("SOE.BIN")
                         );
                     }
                 }
                 
-                plog.getSchemas().clear();
-                plog.getDictionary().clear();
-                
+                if (csr.getAction().equals (ChangeAction.LOB_WRITE)) {
+                    assertTrue (
+                        "Expecting " + LCR_LOBWRITE_NUM_KEY_COLUMNS + " " + 
+                        "key column values, got: " +
+                        csr.getKeyValues().size(),
+                        csr.getKeyValues().size() == LCR_LOBWRITE_NUM_KEY_COLUMNS
+                    );
+                        
+                    assertTrue (
+                        "Expecting " + LCR_LOBWRITE_NUM_OLD_COLUMNS + " " + 
+                        "old column values, got: " +
+                        csr.getOldValues().size(),
+                        csr.getOldValues().size() == LCR_LOBWRITE_NUM_OLD_COLUMNS
+                    );
+                    
+                    assertTrue (
+                        "Expecting " + LCR_LOBWRITE_NUM_NEW_COLUMNS + " " + 
+                        "new column values, got: " +
+                        csr.getNewValues().size(),
+                        csr.getNewValues().size() == LCR_LOBWRITE_NUM_NEW_COLUMNS
+                    );
+                    
+                    ColumnValue cv = csr.getLobValues().get(0);
+                    assertTrue (
+                        "Expecting column id: " + COLUMN_ID + " name: " + 
+                        COLUMN_NAME + " value: " + columnValue + ", got: "+
+                        cv.toString(),
+                        cv.getId() == COLUMN_ID &&
+                        cv.getName().equals(COLUMN_NAME) &&
+                        (cv.getValue() instanceof SerialBlob 
+                         ? cv.getValueAsString().equals(columnValue)
+                         : cv.getValue().equals(columnValue))
+                    );
+                }
             }
-            catch (Exception e) {
-                e.printStackTrace();
-                fail(e.getMessage());
-            }
+            
+            plog.getSchemas().clear();
+            plog.getDictionary().clear();
+            
         }
+        catch (Exception e) {
+            e.printStackTrace();
+            fail(e.getMessage());
+        }
+    }
 }

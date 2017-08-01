@@ -26,7 +26,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
  * Logical domain abstraction for a change record, that is a record that
  * represents the state of a record after change was applied
  */
-public class LogicalChangeRecord extends DomainRecord {
+public class ChangeRowRecord extends DomainRecord {
     /** Type of change */
     private ChangeAction action;
     
@@ -66,8 +66,8 @@ public class LogicalChangeRecord extends DomainRecord {
     /**
      * Create empty logical change record with correct domain type
      */
-    public LogicalChangeRecord () {
-        recordType = DomainRecordType.CHANGE_RECORD;
+    public ChangeRowRecord () {
+        recordType = DomainRecordType.CHANGEROW_RECORD;
     }
 
     /**
@@ -288,8 +288,6 @@ public class LogicalChangeRecord extends DomainRecord {
      * these with it's data counterpart into one logical change record
      * 
      * @param isMultiPart whether or not this is a multi-part record
-     * 
-     * @see com.dbvisit.replicate.plog.reader.DomainReader#enableMultiPartMerging()
      */
     public void setIsMultiPart (boolean isMultiPart) {
         this.isMultiPart = isMultiPart;
@@ -373,7 +371,7 @@ public class LogicalChangeRecord extends DomainRecord {
                     case DELETE:
                     {
                         /* only supplemental key */
-                        if (cr.isKey()) {
+                        if (cr.isSupLogKey()) {
                             if (kb.length() != 0) {
                                 kb.append ("_");
                             }
@@ -419,23 +417,22 @@ public class LogicalChangeRecord extends DomainRecord {
      */
     public String toString() {
         StringBuffer sb = new StringBuffer();
-        sb.append(this.getClass().getSimpleName())
-          .append(":")
-          .append(" XID=")
+        sb.append("Change record")
+          .append(" XID:")
           .append(
               transactionId != null ? transactionId : "N/A"
           )
-          .append(" type=")
+          .append(" type:")
           .append(recordType)
-          .append(" SCN=")
+          .append(" SCN:")
           .append(
               systemChangeNumber != 0 ? systemChangeNumber : "N/A"
           )
-          .append(" owner=")
+          .append(" owner:")
           .append(
               tableOwner != null ? tableOwner : "N/A"
           )
-          .append(" table=")
+          .append(" table:")
           .append(
               tableName != null ? tableName : "N/A"
           );
@@ -462,12 +459,12 @@ public class LogicalChangeRecord extends DomainRecord {
      * @return logical change record domain object
      * @throws Exception if de-serialization error occur
      */
-    public static LogicalChangeRecord fromJSONString (String json)
+    public static ChangeRowRecord fromJSONString (String json)
     throws Exception {
-        return (LogicalChangeRecord)
+        return (ChangeRowRecord)
             DomainJSONConverter.fromJSONString(
                 json,
-                LogicalChangeRecord.class
+                ChangeRowRecord.class
             );
     }
     

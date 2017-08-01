@@ -45,6 +45,9 @@ public class DDLMetaData {
     /** Index for finding column meta data by ordinal number or ID */
     @JsonIgnore
     private Map<Integer, Column> columns;
+    /** Whether or not the table has key constraints */
+    @JsonProperty("hasKey")
+    private Boolean hasKey = false;
 
     /**
      * Set the Oracle SCN number at which this data definition was created 
@@ -225,4 +228,22 @@ public class DDLMetaData {
         return tableName.startsWith(RECYCLING_BIN_DDL_PREFIX);
     }
 
+    /**
+     * Set whether or not this table has key constraints available
+     * 
+     * @param hasKey true if table has key constraints, else false
+     */
+    public void setHasKey (boolean hasKey) {
+        this.hasKey = hasKey;
+    }
+    
+    /**
+     * Return whether or not this table has key constraints available
+     * 
+     * @return true if table has key constraints, else false
+     */
+    @JsonProperty ("hasKey")
+    public boolean hasKey () {
+        return hasKey;
+    }
 }

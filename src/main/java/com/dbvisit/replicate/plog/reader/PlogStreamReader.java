@@ -63,15 +63,15 @@ public class PlogStreamReader {
     /** Default read limit on stream */
     private static final int READ_LIMIT = 1000000;
     /** The buffered input bytes stream that will be opened on PLOG file */
-    private DataInputStream plogStream;
+    private final DataInputStream plogStream;
     /** Identify if this stream reader is ready for reading records */
     private boolean ready = false;
     /** Identify if this stream reader is done reading */
     private boolean done  = false;
     /** The parent PLOG of this stream reader */
-    private PlogFile plog;
-    /** The child domain reader to use for reading domain records from PLOG */
-    private DomainReader domainReader;
+    private final PlogFile plog;
+    /** The domain reader to use for reading domain records from PLOG */
+    private final DomainReader domainReader;
     /** The maximum size of domain cache before it will be flushed */
     private int flushSize = FLUSH_SIZE;
     /** Number of records read in PLOG */
@@ -90,33 +90,42 @@ public class PlogStreamReader {
      * Create and initialize PLOG stream reader from PLOG file handle
      * 
      * @param plog PLOG file to open and read
+     * @param domainReader the immutable domain reader to use for converting
+     *                     the PLOG records to domain records
+     * @throws Exception if PLOG file cannot be opened
      */
-    public PlogStreamReader (PlogFile plog) {
-        this.plog = plog;
-        domainReader = new DomainReader();
+    public PlogStreamReader (
+        final PlogFile     plog,
+        final DomainReader domainReader
+    ) throws Exception {
+        this.plog         = plog;
+        this.domainReader = domainReader;
+        
+        plogStream = new DataInputStream (
+            new BufferedInputStream (
+                new FileInputStream (new File (plog.getFullPath()))
+            )
+        );
         data = new LinkedList<DomainRecord>();
 
         if (plog.isLoadFile()) {
             proxy = true;
         }
     }
-
-    /**
-     * Create and initialize empty PLOG stream reader
-     */
-    public PlogStreamReader () {
-        domainReader = new DomainReader();
+    
+    public PlogStreamReader (
+        final PlogFile plog,
+        final DomainReader domainReader,
+        final DataInputStream stream
+    ) throws Exception {
+        this.plog         = plog;
+        this.domainReader = domainReader;
+        this.plogStream   = stream;
         data = new LinkedList<DomainRecord>();
-    }
 
-    /**
-     * Manually set the data input stream to process, the data stream must
-     * have already been opened on a valid PLOG file.
-     * 
-     * @param plogStream data input stream already opened on PLOG
-     */
-    public void setPlogStream (DataInputStream plogStream) {
-        this.plogStream = plogStream;
+        if (plog.isLoadFile()) {
+            proxy = true;
+        }
     }
 
     /**
@@ -214,15 +223,6 @@ public class PlogStreamReader {
     }
 
     /**
-     * Set the PLOG file for which this reader is managing as a stream of bytes
-     * 
-     * @param plog handle to current PLOG file to read
-     */
-    public void setPlog (PlogFile plog) {
-        this.plog = plog;
-    }
-
-    /**
      * Return the PLOG file for which this reader is managing the reading and
      * converting of raw entries to domain records
      * 
@@ -230,18 +230,6 @@ public class PlogStreamReader {
      */
     public final PlogFile getPlog () {
         return this.plog;
-    }
-
-    /**
-     * Set the pre-configured domain reader that takes care of reading
-     * the stream of bytes as PLOG format records, prior to parsing and
-     * converting it to domain records
-     * 
-     * @param domainReader the reader that holds domain specific knowledge
-     *                     of the contents of a PLOG file and it's meaning
-     */
-    public void setDomainReader (DomainReader domainReader) {
-        this.domainReader = domainReader;
     }
 
     /**
@@ -353,11 +341,6 @@ public class PlogStreamReader {
      */
     public void open (long startOffset) throws Exception {
         try {
-            this.plogStream = new DataInputStream (
-                new BufferedInputStream (
-                    new FileInputStream (new File (plog.getFullPath()))
-                )
-            );
             /* read header and position at first entry record */
             prepare ();
 
@@ -405,7 +388,7 @@ public class PlogStreamReader {
             close();
             throw new Exception (
                 "Unable to read from PLOG: " + plog.getFileName() + 
-                ", reason: PLOG stream is invalid"
+                ", reason: PLOG stream has not been initialised"
             );
         }
 
@@ -416,10 +399,6 @@ public class PlogStreamReader {
                 for (DomainRecord dr : drs) {
                     if (dr.shouldPersist()) {
                         data.add (dr);
-                    }
-
-                    if (domainReader.isDone()) {
-                        done = true;
                     }
 
                     /* total number of records parsed */

@@ -25,6 +25,7 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.util.GregorianCalendar;
+import java.util.TimeZone;
 
 import javax.sql.rowset.serial.SerialBlob;
 
@@ -402,22 +403,31 @@ public class ColumnDataDecoder extends DataDecoder {
         else {
             /* 0: 100-offset century
              * 1: 100-offset year
-             * 2: 0-offset month, but -1, January is 0
+             * 2: 0-offset month, but -1 for calendar
              * 3: 0-offset day
              * 4: 1-offset hour
              * 5: 1-offset minute
              * 6: 1-offset second
              */
-            GregorianCalendar gcal = new GregorianCalendar(
-                (((int) barr[DATE_CENTURY_BYTE] & 0xFF) - 100) * 100
-                    + (((int) barr[DATE_YEAR_BYTE] & 0xFF) - 100),
-                barr[DATE_MONTH_BYTE] - 1,
-                barr[DATE_DAY_BYTE],
-                barr[DATE_HOUR_BYTE] - 1,
-                barr[DATE_MINUTE_BYTE] - 1,
-                barr[DATE_SECOND_BYTE] - 1
-            );
-
+            int year = 
+                (
+                    ((int) barr[DATE_CENTURY_BYTE] & 0xFF) - 100
+                ) * 100
+                + 
+                (
+                  ((int) barr[DATE_YEAR_BYTE] & 0xFF) - 100
+                );
+            int month  = barr[DATE_MONTH_BYTE] - 1;
+            int day    = barr[DATE_DAY_BYTE];
+            int hour   = barr[DATE_HOUR_BYTE] - 1;
+            int minute = barr[DATE_MINUTE_BYTE] - 1;
+            int second = barr[DATE_SECOND_BYTE] - 1;
+            
+            GregorianCalendar gcal = 
+                new GregorianCalendar(year, month, day, hour, minute, second);
+            
+            gcal.setTimeZone(TimeZone.getTimeZone("UTC"));
+            
             t = new Timestamp(gcal.getTimeInMillis());
         }
 
@@ -451,25 +461,35 @@ public class ColumnDataDecoder extends DataDecoder {
         else {
             /* 0: 100-offset century
              * 1: 100-offset year
-             * 2: 0-offset month, but -1, January is 0
+             * 2: 0-offset month, but -1 for calendar
              * 3: 0-offset day
              * 4: 1-offset hour
              * 5: 1-offset minute
              * 6: 1-offset second
              */
-            GregorianCalendar gcal = new GregorianCalendar(
-                (((int) barr[DATE_CENTURY_BYTE] & 0xFF) - 100) * 100
-                    + (((int) barr[DATE_YEAR_BYTE] & 0xFF) - 100),
-                barr[DATE_MONTH_BYTE] - 1,
-                barr[DATE_DAY_BYTE],
-                barr[DATE_HOUR_BYTE] - 1,
-                barr[DATE_MINUTE_BYTE] - 1,
-                barr[DATE_SECOND_BYTE] - 1
-            );
-
+            int year = 
+                (
+                    ((int) barr[DATE_CENTURY_BYTE] & 0xFF) - 100
+                ) * 100
+                + 
+                (
+                    ((int) barr[DATE_YEAR_BYTE] & 0xFF) - 100
+                );
+            int month  = barr[DATE_MONTH_BYTE] - 1;
+            int day    = barr[DATE_DAY_BYTE];
+            int hour   = barr[DATE_HOUR_BYTE] - 1;
+            int minute = barr[DATE_MINUTE_BYTE] - 1;
+            int second = barr[DATE_SECOND_BYTE] - 1;
+                
+            GregorianCalendar gcal = 
+                new GregorianCalendar(year, month, day, hour, minute, second);
+            
+            gcal.setTimeZone(TimeZone.getTimeZone("UTC"));
+            
             int umilli = 0;
             for (int j = 7; j < rawLength; j++) {
-                umilli = (umilli << 8) + ((int) barr[PLOG_CHUNK_BYTES + j] & 0xFF);
+                umilli =
+                    (umilli << 8) + ((int) barr[PLOG_CHUNK_BYTES + j] & 0xFF);
             }
 
             if (umilli > 999999999) {
@@ -480,6 +500,13 @@ public class ColumnDataDecoder extends DataDecoder {
                 umilli = 0;
             }
 
+            logger.trace (
+                "Raw value decoded: " + 
+                year + "-" + (month + 1) + "-" + day + " " + 
+                hour + ":" + minute + ":" + second + "."   +
+                umilli
+            );
+            
             ts = new Timestamp(gcal.getTimeInMillis());
             ts.setNanos(umilli);
 
@@ -523,37 +550,57 @@ public class ColumnDataDecoder extends DataDecoder {
         else {
             /* 0: 100-offset century
              * 1: 100-offset year
-             * 2: 0-offset month, but -1, January is 0
+             * 2: 0-offset month, but -1 for calendar
              * 3: 0-offset day
              * 4: 1-offset hour
              * 5: 1-offset minute
              * 6: 1-offset second
              */
-            GregorianCalendar gcal = new GregorianCalendar(
-                (((int) barr[DATE_CENTURY_BYTE] & 0xFF) - 100) * 100
-                    + (((int) barr[DATE_YEAR_BYTE] & 0xFF) - 100), 
-                barr[DATE_MONTH_BYTE] - 1, 
-                barr[DATE_DAY_BYTE],
-                barr[DATE_HOUR_BYTE] - 1,
-                barr[DATE_MINUTE_BYTE] - 1,
-                barr[DATE_SECOND_BYTE] - 1
-            );
-
+            int year = 
+                (
+                    ((int) barr[DATE_CENTURY_BYTE] & 0xFF) - 100
+                ) * 100
+                + 
+                (
+                    ((int) barr[DATE_YEAR_BYTE] & 0xFF) - 100
+                );
+            int month  = barr[DATE_MONTH_BYTE] - 1;
+            int day    = barr[DATE_DAY_BYTE];
+            int hour   = barr[DATE_HOUR_BYTE] - 1;
+            int minute = barr[DATE_MINUTE_BYTE] - 1;
+            int second = barr[DATE_SECOND_BYTE] - 1;
+                    
+            GregorianCalendar gcal = 
+                new GregorianCalendar(year, month, day, hour, minute, second);
+            
             int umilli = 0;
             for (int j = 7; j < rawLength - 2; j++) {
-                umilli = (umilli << 8) + ((int) barr[PLOG_CHUNK_BYTES + j] & 0xFF);
+                umilli = 
+                    (umilli << 8) + ((int) barr[PLOG_CHUNK_BYTES + j] & 0xFF);
             }
+            
             int tzh = ((int) barr[PLOG_CHUNK_BYTES + rawLength - 2] & 0xFF);
             int tzm = ((int) barr[PLOG_CHUNK_BYTES + rawLength - 1] & 0xFF);
 
             if (tzh != 0xd0 || tzm != 0x4) {
-                logger.warn(
-                    "Timezone was not UTC in TIMESTAMP WITH TIME ZONE (tzh=" +
-                    tzh + ", tzm=" + tzm + ")"
+                logger.error(
+                    "Timezone was not UTC in TIMESTAMP WITH TIME ZONE, got " +
+                    "tzh: " + tzh + ", tzm: " + tzm
                 );
             }
-
+            else {
+                gcal.setTimeZone(TimeZone.getTimeZone("UTC"));
+            }
+            
+            logger.trace (
+                "Raw value decoded: " + 
+                year + "-" + (month + 1) + "-" + day + " " + 
+                hour + ":" + minute + ":" + second + "."   +
+                umilli
+            );
+            
             ts = new Timestamp(gcal.getTimeInMillis());
+            
             ts.setNanos(umilli);
         }
 
@@ -591,36 +638,37 @@ public class ColumnDataDecoder extends DataDecoder {
         /* first chunk is raw length; data start at second chunk,
          * buffer is advanced by PLOG_CHUNK_BYTES 
          */
-        b.getInt();
+        int len = b.getInt();
+        
+        if (len != 0) {
+            /* use raw byte array copy for direct offset decoding below */
+            byte[] barr = b.array();
 
-        /* use raw byte array copy for direct offset decoding below */
-        byte[] barr = b.array();
+            long d = 0;
+            for (int j = 0; j < 4; j++) {
+                d = (d << 8) + ((int) barr[PLOG_CHUNK_BYTES + j] & 0xFF);
+            }
+            d -= 0x80000000L;
 
-        long d = 0;
-        for (int j = 0; j < 4; j++) {
-            d = (d << 8) + ((int) barr[PLOG_CHUNK_BYTES + j] & 0xFF);
+            int h = ((int) barr[PLOG_CHUNK_BYTES + 4] & 0xFF) - 60;
+            int mi = ((int) barr[PLOG_CHUNK_BYTES + 5] & 0xFF) - 60;
+            int s = ((int) barr[PLOG_CHUNK_BYTES + 6] & 0xFF) - 60;
+
+            long umilli = 0;
+            for (int j = 7; j < 11; j++) {
+                umilli = (umilli << 8) + ((int) barr[PLOG_CHUNK_BYTES + j] & 0xFF);
+            }
+            umilli -= 0x80000000L;
+
+            interval = String.format(
+                "%+d %d:%d:%d.%05d", 
+                d,
+                Math.abs(h), 
+                Math.abs(mi), 
+                Math.abs(s),
+                Math.abs(umilli)
+            );
         }
-        d -= 0x80000000L;
-
-        int h = ((int) barr[PLOG_CHUNK_BYTES + 4] & 0xFF) - 60;
-        int mi = ((int) barr[PLOG_CHUNK_BYTES + 5] & 0xFF) - 60;
-        int s = ((int) barr[PLOG_CHUNK_BYTES + 6] & 0xFF) - 60;
-
-        long umilli = 0;
-        for (int j = 7; j < 11; j++) {
-            umilli = (umilli << 8) + ((int) barr[PLOG_CHUNK_BYTES + j] & 0xFF);
-        }
-        umilli -= 0x80000000L;
-
-        interval = String.format(
-            "%+d %d:%d:%d.%05d", 
-            d,
-            Math.abs(h), 
-            Math.abs(mi), 
-            Math.abs(s),
-            Math.abs(umilli)
-        );
-
         return interval;
     }
 
@@ -641,21 +689,23 @@ public class ColumnDataDecoder extends DataDecoder {
         /* first chunk is raw length; data start at second chunk,
          * buffer is advanced by PLOG_CHUNK_BYTES 
          */
-        b.getInt();
+        int len = b.getInt();
+        
+        if (len != 0) {
+            /* use raw byte array copy for direct offset decoding below */
+            byte[] barr = b.array();
 
-        /* use raw byte array copy for direct offset decoding below */
-        byte[] barr = b.array();
+            long y = 0;
+            for (int j = 0; j < 4; j++) {
+                y = (y << 8) + ((int) barr[PLOG_CHUNK_BYTES + j] & 0xFF);
+            }
+            y -= 0x80000000L;
 
-        long y = 0;
-        for (int j = 0; j < 4; j++) {
-            y = (y << 8) + ((int) barr[PLOG_CHUNK_BYTES + j] & 0xFF);
+            int m = ((int) barr[PLOG_CHUNK_BYTES + 4] & 0xFF) - 60;
+
+            interval = String.format("%+d-%d", y, Math.abs(m));
         }
-        y -= 0x80000000L;
-
-        int m = ((int) barr[PLOG_CHUNK_BYTES + 4] & 0xFF) - 60;
-
-        interval = String.format("%+d-%d", y, Math.abs(m));
-
+        
         return interval;
     }
 

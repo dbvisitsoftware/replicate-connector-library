@@ -15,6 +15,7 @@ import com.dbvisit.replicate.plog.format.EntryTagRecord;
 import com.dbvisit.replicate.plog.format.EntryTagType;
 import com.dbvisit.replicate.plog.format.decoder.SimpleDataDecoder;
 import com.dbvisit.replicate.plog.metadata.Column;
+import com.dbvisit.replicate.plog.metadata.ColumnState;
 import com.dbvisit.replicate.plog.metadata.DDLMetaData;
 import com.dbvisit.replicate.plog.metadata.Table;
 
@@ -57,8 +58,7 @@ public class DictionaryParser {
     throws Exception {
         if (plog.isCompact() &&
             rec != null && 
-            rec.useColumnMetaData() && 
-            rec.canParseColumnMetaData()) 
+            rec.hasColumnMetaData()) 
         {
             if (plog.getDictionary() == null) {
                 plog.setDictionary(new HashMap<Integer, Table>());
@@ -66,14 +66,9 @@ public class DictionaryParser {
 
             Map<Integer, Table> dictionary = plog.getDictionary();
             
-            boolean usedColumnMetaData = true;
-
-            /* aim is to build dictionary for compact PLOG decoding.
-             * decode meta data from entry record if it has any, if none
-             * available we try a cache hit on schema definitions
-             */
+            /* parse table meta data for row level dictionary */ 
             Table table = getTableMetaData(plog, rec);
-                
+            
             logger.debug ("Dictionary parsed: " + table.toString());
                         
             /* dictionary is used for caching minimal meta data for
@@ -86,73 +81,25 @@ public class DictionaryParser {
                 /* update dictionary columns */
                 Table cache = dictionary.get(table.getId());
                 
-                /* check for update */
+                boolean merged = false;
+                
                 if (table.getColumns() != null && 
                     cache.getColumns() != null) 
                 {
-                    updateColumnsWithMetaData (
-                        cache.getColumns(),
-                        table.getColumns()
+                    merged = mergeColumns (
+                        table.getColumns(),
+                        cache.getColumns()
                     );
                 }
-            }
-            
-            if (usedColumnMetaData) {
-                updateSchemaFromMetaData (plog, rec, table.getColumns());
-            }
-        }
-    }
-    
-    /** 
-     * Update the schema definition from the parsed column meta data. This
-     * is only done if needed as fallback for strange PLOGs.
-     * 
-     * @param plog     Parsed PLOG file
-     * @param rec      Parsed PLOG entry record
-     * @param metadata Parsed column meta data
-     * 
-     * @throws Exception Failed to update schema definition from PLOG entry
-     */
-    private void updateSchemaFromMetaData (
-        PlogFile plog,
-        EntryRecord rec,
-        List<Column> metadata
-    ) throws Exception 
-    {
-        if (metadata != null) {
-            boolean updated = false;
-            String schema   = rec.getRecordSchema();
-            
-            if (schema != null && plog.getSchemas().containsKey(schema)) {
-                /* check if we need to update JSON schema definition 
-                 * or rebuild column map 
-                 */
-                DDLMetaData schemaDDL = plog.getSchemas().get(schema);
-                    
-                if (updateColumnsWithMetaData (
-                        schemaDDL.getTableColumns(),
-                        metadata
-                    )
-                ) {
-                    updated = true;
-                        
-                    /* update the SCN validity for schema definition */
-                    schemaDDL.setValidSinceSCN (rec.getRecordSCN());
-                        
-                    plog.setUpdatedSchema(true);
-                }
-                            
-                if (updated) {
-                    Map <Integer, Column> colMap = 
-                        plog.getSchemas().get(schema).getColumns();
-                    List <Column> cols = 
-                        plog.getSchemas().get(schema).getTableColumns();
-                        
-                    for (Column col : cols) {
-                        if (!colMap.containsKey (col.getId())) {
-                            colMap.put (col.getId(), col);
-                        }
-                    }
+                
+                if (merged) {
+                    /* set table keys for existing schema after merging columns */
+                    setTableKeys (plog, table);
+                
+                    /* overwrite existing one in cache */
+                    dictionary.put (table.getId(), table);
+                
+                    logger.debug ("Updating dictionary: " + table.toString());
                 }
             }
         }
@@ -228,6 +175,11 @@ public class DictionaryParser {
         }
         
         table.setColumns(getColumnsMetaData(rec));
+        
+        if (!plog.getDictionary().containsKey(table.getId())) {
+            /* set table keys from PLOG cache for unmodified schema */
+            setTableKeys (plog, table);
+        }
 
         return table;
     }
@@ -244,7 +196,7 @@ public class DictionaryParser {
     throws Exception {
         List<Column> columns = null;
         
-        if (rec.canParseColumnMetaData()) {
+        if (rec.hasColumnMetaData()) {
             Map <EntryTagType, List<EntryTagRecord>> tags = rec.getEntryTags();
             
             Map <Integer, Integer> idxToId = 
@@ -330,98 +282,120 @@ public class DictionaryParser {
     }
     
     /**
-     * Support DDL removing or adding column meta data only
+     * Compare two list of columns and set the state of incoming columns
+     * according to the comparison with old
      * 
-     * @param columns  The current list of columns from dictionary
-     * @param metadata The current list of columns from meta data
+     * @param current  The current list of columns decoded from LCR NOOP
+     * @param previous The previous list of columns from dictionary cache
      * 
-     * @return true if it's been updated, else false
+     * @return true if columns were merged, else false
      */
-    private boolean updateColumnsWithMetaData (
-        List <Column> columns,
-        List <Column> metadata   
-    ) throws Exception 
-    {
-        boolean updated = false;
+    public static boolean mergeColumns (
+        List <Column> current,
+        List <Column> previous   
+    ) {
+        boolean merged = false;
         
-        /* only support adding new columns, not modifying existing
-         * columns. when columns are removed we set it to 
-         * non-mandatory 
+        /* should only be dealing with NOOP LCRs, this should not
+         * be done frequently, first iterate through current
+         * and compare, then add ones that were removed at end
          */
-        if (columns.size() > metadata.size()) {
-            /* compare by ordinal number, fields removed */
-            for (int c = metadata.size(); c < columns.size(); c++) {
-                columns.get (c).setNullable(true);
-                updated = true;
+        for (int idx = 0; idx < current.size(); idx++) {
+            Column c = current.get(idx);
+            Column p = null;
+            
+            if (idx < previous.size()) {
+                /* when current has added a new column at end */
+                p = previous.get(idx);
             }
-            
-            /* check that none of the existing columns have changed 
-             * either name or type change is compatible, scale and
-             * precision is tolerated */
-            boolean incompatible = false;
-            
-            for (int c = 0; c < metadata.size(); c++) {
-                Column c1 = metadata.get (c);
-                
-                if (c1 != null && c1.getName() != null) {
-                    Column c2 = columns.get (c);
-                    
-                    if (c2 != null && 
-                        !c1.toCmpString().equals (c2.toCmpString())) 
-                    {
-                        incompatible = true;
-                    }
-                }
-            }
-            
-            if (incompatible) {
-                throw new Exception (
-                    "Unsupported DDL operation, reason existing columns " +
-                    " have been modified"
+            if (c == null && p != null) {
+                p.setState(ColumnState.REMOVED);
+                /* removed, merge with previous */
+                logger.trace (
+                    "Column at idx: "   + idx + " removed " +
+                    "column: " + p.toString()
                 );
+                current.set(idx, p);
+                merged = true;
+            }
+            else if (c != null && p == null) {
+                /* added new column, set state accordingly */
+                c.setState(ColumnState.ADDED);
+                logger.trace (
+                    "Column at idx: "   + idx + " added " +
+                    "column: " + c.toString()
+                );
+                merged = true;
+            }
+            else {
+                /* both present */
+                if (c.toCmpString().equals(p.toCmpString())) {
+                    c.setState(ColumnState.UNCHANGED);
+                }
+                else {
+                    logger.trace (
+                        "Column at idx: "   + idx + " modified "  +
+                        "column: " + c.toString() + " previous: " +
+                        p.toString()
+                    );
+                    /* modified, set state accordingly */
+                    c.setState(ColumnState.MODIFIED);
+                    merged = true;
+                }
             }
         }
-        else if (columns.size() < metadata.size()) {
-            for (int c = columns.size(); c < metadata.size(); c++) {
-                Column md = metadata.get (c);
-                
-                /* must not be mandatory */
-                md.setNullable(true);
-                
-                columns.add (md);
-                updated = true;
-            }
-
-            /* check that none of the existing columns have changed */
-            boolean incompatible = false;
+        if (current.size() < previous.size()) {
+            /* less columns than previously, these will be at end */
+            int csize = current.size();
             
-            for (int c = 0; c < metadata.size(); c++) {
-                Column c1 = metadata.get (c);
-                
-                if (c1 != null && c1.getName() != null) {
-                    Column c2 = columns.get (c);
-                    
-                    if (c2 != null && 
-                        !c1.toCmpString().equals (c2.toCmpString())) 
-                    {
-                        incompatible = true;
-                    }
-                }
-            }
-            
-            if (incompatible) {
-                throw new Exception (
-                    "Unsupported DDL operation, reason existing columns " +
-                    "have been modified. " +
-                    "\nDetails: " + 
-                    "\n" + columns.toString()  + "\n" + 
-                    "have been changed to: "   + 
-                    "\n" + metadata.toString() + "\n"
+            for (int idx = csize; idx < previous.size(); idx++) {
+                Column p = previous.get(idx);
+                p.setState(ColumnState.REMOVED);
+                logger.trace (
+                    "Column at idx: "   + idx + " removed " +
+                    "column: " + p.toString()
                 );
+                current.add (p);
+                merged = true;
             }
         }
         
-        return updated;
+        return merged;
+    } 
+    
+    /**
+     * Attach the schema keys to table dictionary for use by column values
+     * 
+     * @param plog  current parsed PLOG file
+     * @param table the already parsed table definition
+     */
+    private void setTableKeys (PlogFile plog, Table table) {
+        if (plog.getSchemas().containsKey (table.getFullName())) {
+            DDLMetaData md = plog.getSchemas().get (table.getFullName());
+            List<Column> cols = md.getTableColumns();
+            
+            for (int c = 0; c < cols.size(); c++) {
+                if (cols.get(c).isKey()) {
+                    if (c < table.getColumns().size() &&
+                        table.getColumns().get(c) != null)
+                    {
+                        logger.debug (
+                            "Setting dictionary table: " + table.getFullName() + 
+                            " key for column: " + 
+                            table.getColumns().get(c).getName()
+                        );
+                        table.getColumns().get(c).setIsKey(true);
+                    }
+                }
+            }
+            
+            /* set whether or not the table dictionary has key constraints */
+            table.setHasKey(md.hasKey());
+            
+            logger.debug (
+                "table: " + table.getFullName() + " has key: " + table.hasKey()
+            );
+        }
     }
     
 }

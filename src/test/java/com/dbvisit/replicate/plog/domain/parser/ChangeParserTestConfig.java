@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 
 import com.dbvisit.replicate.plog.file.PlogFile;
 import com.dbvisit.replicate.plog.format.EntryRecord;
@@ -14,23 +15,45 @@ import com.dbvisit.replicate.plog.format.EntryTagType;
 import com.dbvisit.replicate.plog.format.decoder.SimpleDataDecoder;
 import com.dbvisit.replicate.plog.format.parser.EntryRecordParser;
 
+import org.junit.BeforeClass;
+import org.junit.AfterClass;
+
 /** Configure and provide test fixtures for changer parser test suite */
 public class ChangeParserTestConfig {
     /* make a fake PLOG */
-    protected PlogFile plog = new PlogFile() {
-        public boolean canUse() {
-            return true;
-        }
-        public boolean isCompact() {
-            return true;
-        }
-        public int getId() {
-            return 1;
-        }
-        public int getTimestamp() {
-            return 1;
-        }
-    };
+    protected static PlogFile plog = null;
+    
+    @BeforeClass
+    public static void init () throws Exception {
+        plog = new PlogFile(null) {
+            public boolean canUse() {
+                return true;
+            }
+            public boolean isCompact() {
+                return true;
+            }
+            public int getId() {
+                return 1;
+            }
+            public int getTimestamp() {
+                return 1;
+            }
+            public void open () throws Exception {
+                return;
+            }
+            /* use /dev/null as dummy file */
+            public String getFullPath() {
+                return "/dev/null";
+            }
+        };
+        
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+    }
+    
+    @AfterClass
+    public static void cleanup () throws Exception {
+        plog.close();
+    }
     
     protected static String LCR_SCHEMA = "SOE.UNITTEST";
     protected final int NUM_COLUMNS = 1;

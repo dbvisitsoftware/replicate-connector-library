@@ -3,6 +3,7 @@ package com.dbvisit.replicate.plog.file;
 import static org.junit.Assert.*;
 
 import java.net.URL;
+import java.util.HashMap;
 
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -10,7 +11,11 @@ import org.slf4j.LoggerFactory;
 
 import com.dbvisit.replicate.plog.config.PlogConfig;
 import com.dbvisit.replicate.plog.config.PlogConfigType;
+import com.dbvisit.replicate.plog.domain.parser.ChangeRowParser;
+import com.dbvisit.replicate.plog.domain.parser.DomainParser;
 import com.dbvisit.replicate.plog.file.PlogFileManager;
+import com.dbvisit.replicate.plog.format.EntryType;
+import com.dbvisit.replicate.plog.reader.DomainReader;
 
 /** 
  * Test the PlogFileManager
@@ -131,7 +136,19 @@ public class PlogFileManagerTest {
     @Test
     public void testLatestPlogFile () {
         try {
-            PlogFileManager fm = new PlogFileManager (getConfigForMultiSet());
+            @SuppressWarnings("serial")
+            PlogFileManager fm = new PlogFileManager (
+                getConfigForMultiSet(),
+                DomainReader.builder().domainParsers(
+                    new HashMap<EntryType, DomainParser[]> () {{
+                        put (
+                            EntryType.ETYPE_CONTROL, 
+                            new DomainParser[] { 
+                                new ChangeRowParser() 
+                            }
+                        );
+                    }})
+            );
             
             int oldest = fm.findOldestPlogSequence();
             
@@ -170,7 +187,20 @@ public class PlogFileManagerTest {
     @Test
     public void testScanSinglePlogFile () {
         try {
-            PlogFileManager fm = new PlogFileManager (getConfigForSingle());
+            @SuppressWarnings("serial")
+            PlogFileManager fm = new PlogFileManager (
+                getConfigForSingle(),
+                DomainReader.builder().domainParsers(
+                    new HashMap<EntryType, DomainParser[]> () {{
+                        put (
+                            EntryType.ETYPE_CONTROL, 
+                            new DomainParser[] { 
+                                new ChangeRowParser() 
+                            }
+                        );
+                    }}
+                )
+            );
             
             fm.scan();
             PlogFile plog = fm.getPlog();
@@ -197,7 +227,20 @@ public class PlogFileManagerTest {
     public void testScanPlogFiles () {
         int i = 0;
         try {
-            PlogFileManager fm = new PlogFileManager (getConfigForMultiSet());
+            @SuppressWarnings("serial")
+            PlogFileManager fm = new PlogFileManager (
+                getConfigForMultiSet(),
+                DomainReader.builder().domainParsers(
+                    new HashMap<EntryType, DomainParser[]> () {{
+                        put (
+                            EntryType.ETYPE_CONTROL, 
+                            new DomainParser[] { 
+                                new ChangeRowParser() 
+                            }
+                        );
+                    }}
+                )
+            );
             
             fm.scan();
             PlogFile plog = fm.getPlog();
@@ -242,8 +285,21 @@ public class PlogFileManagerTest {
     public void testScanWithLoadPlogFiles () {
         int i = 0;
         try {
-            PlogFileManager fm = new PlogFileManager (getConfigForLoadSet());
-            
+            @SuppressWarnings("serial")
+            PlogFileManager fm = new PlogFileManager (
+                getConfigForLoadSet(),
+                DomainReader.builder().domainParsers(
+                    new HashMap<EntryType, DomainParser[]> () {{
+                        put (
+                            EntryType.ETYPE_CONTROL, 
+                            new DomainParser[] { 
+                                new ChangeRowParser() 
+                            }
+                        );
+                    }}
+                )
+            );
+          
             fm.scan();
             PlogFile plog = fm.getPlog();
             
@@ -287,8 +343,19 @@ public class PlogFileManagerTest {
     public void testScanWithMultiPartPlogFiles () {
         int i = 0;
         try {
+            @SuppressWarnings("serial")
             PlogFileManager fm = new PlogFileManager (
-                getConfigForMultiPartSet()
+                getConfigForMultiPartSet(),
+                DomainReader.builder().domainParsers(
+                    new HashMap<EntryType, DomainParser[]> () {{
+                        put (
+                            EntryType.ETYPE_CONTROL, 
+                            new DomainParser[] { 
+                                new ChangeRowParser() 
+                            }
+                        );
+                    }}
+                )
             );
             
             fm.scan();
@@ -335,12 +402,23 @@ public class PlogFileManagerTest {
     public void testStartScanAtMultiPartPlogFile () {
         int i = 0;
         try {
-            /* start at second PLOG for first restart */
+            /* start at first PLOG for second restart */
             i = 2;
             String[] parts = PLOG_MINE_RESTART_SET_FILENAMES[i].split("\\.");
             
+            @SuppressWarnings("serial")
             PlogFileManager fm = new PlogFileManager (
                 getConfigForMultiPartSet(),
+                DomainReader.builder().domainParsers(
+                    new HashMap<EntryType, DomainParser[]> () {{
+                        put (
+                            EntryType.ETYPE_CONTROL, 
+                            new DomainParser[] { 
+                                new ChangeRowParser() 
+                            }
+                        );
+                    }}
+                ),
                 PlogFile.createPlogUID(
                     Integer.parseInt (parts[0]),
                     Integer.parseInt (parts[2])
@@ -376,6 +454,142 @@ public class PlogFileManagerTest {
                 plog = fm.getPlog();
             }
             
+        }
+        catch (InterruptedException ie) {
+            logger.info ("Forcefully interrupted");
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+            logger.error (e.getMessage());
+            fail (e.getMessage());
+        }
+    }
+    
+    @Test
+    public void testStartScanAtStartOfMultiPartPlogFile () {
+        int i = 0;
+        try {
+            /* start at second PLOG after restart */
+            i = 3;
+            String[] parts = PLOG_MINE_RESTART_SET_FILENAMES[i].split("\\.");
+            
+            @SuppressWarnings("serial")
+            PlogFileManager fm = new PlogFileManager (
+                getConfigForMultiPartSet(),
+                DomainReader.builder().domainParsers(
+                    new HashMap<EntryType, DomainParser[]> () {{
+                        put (
+                            EntryType.ETYPE_CONTROL, 
+                            new DomainParser[] { 
+                                new ChangeRowParser() 
+                            }
+                        );
+                    }}
+                ),
+                PlogFile.createPlogUID(
+                    Integer.parseInt (parts[0]),
+                    Integer.parseInt (parts[2])
+                )
+            );
+            
+            fm.scan();
+            PlogFile plog = fm.getPlog();
+            
+            fm.setForceInterrupt();
+            
+            while (plog != null) {
+                logger.info ("Found " + plog);
+
+                assertTrue (plog.isValid());
+                assertTrue (plog.canUse());
+                assertFalse (!plog.getReader().isBusy());
+                assertFalse (plog.getReader().isDone());
+                
+                String fileName = plog.getFileName().substring(
+                    plog.getFileName().lastIndexOf('/') + 1
+                );
+                
+                assertTrue (
+                    "Expecting multi-part PLOG file: " + 
+                    PLOG_MINE_RESTART_SET_FILENAMES[i] + ", got: "  + 
+                    fileName,
+                    fileName.equals(PLOG_MINE_RESTART_SET_FILENAMES[i])
+                );
+                
+                i++;
+                fm.scan();
+                plog = fm.getPlog();
+            }
+        }
+        catch (InterruptedException ie) {
+            logger.info ("Forcefully interrupted");
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+            logger.error (e.getMessage());
+            fail (e.getMessage());
+        }
+    }
+    
+    @Test
+    public void testStartScanAfterMultiPartPlogFile () {
+        int i = 0;
+        try {
+            /* start after the first PLOG after restart */
+            i = 2;
+            String[] parts = PLOG_MINE_RESTART_SET_FILENAMES[i].split("\\.");
+            
+            @SuppressWarnings("serial")
+            PlogFileManager fm = new PlogFileManager (
+                getConfigForMultiPartSet(),
+                DomainReader.builder().domainParsers(
+                    new HashMap<EntryType, DomainParser[]> () {{
+                        put (
+                            EntryType.ETYPE_CONTROL, 
+                            new DomainParser[] { 
+                                new ChangeRowParser() 
+                            }
+                        );
+                    }}
+                )
+            );
+            fm.startAfter(
+                PlogFile.createPlogUID(
+                    Integer.parseInt (parts[0]),
+                    Integer.parseInt (parts[2])
+                )
+            );
+            
+            fm.scan();
+            PlogFile plog = fm.getPlog();
+            
+            fm.setForceInterrupt();
+            
+            /* start after */
+            i++;
+            while (plog != null) {
+                logger.info ("Found " + plog);
+
+                assertTrue (plog.isValid());
+                assertTrue (plog.canUse());
+                assertFalse (!plog.getReader().isBusy());
+                assertFalse (plog.getReader().isDone());
+                
+                String fileName = plog.getFileName().substring(
+                    plog.getFileName().lastIndexOf('/') + 1
+                );
+                
+                assertTrue (
+                    "Expecting multi-part PLOG file: " + 
+                    PLOG_MINE_RESTART_SET_FILENAMES[i] + ", got: "  + 
+                    fileName,
+                    fileName.equals(PLOG_MINE_RESTART_SET_FILENAMES[i])
+                );
+                
+                i++;
+                fm.scan();
+                plog = fm.getPlog();
+            }
         }
         catch (InterruptedException ie) {
             logger.info ("Forcefully interrupted");

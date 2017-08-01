@@ -23,7 +23,9 @@ public enum DomainRecordType {
     /** A row-level change record, this is a complete record, not a
      *  change vector
      */
-    CHANGE_RECORD,
+    CHANGEROW_RECORD,
+    /* A crow-level change set record, this is a change vector */
+    CHANGESET_RECORD,
     /** A meta data record for schema definition for change records */
     METADATA_RECORD,
     /** A control header record that holds information about PLOG 

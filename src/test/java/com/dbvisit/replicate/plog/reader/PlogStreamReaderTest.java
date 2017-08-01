@@ -12,11 +12,11 @@ import com.dbvisit.replicate.plog.domain.ColumnValue;
 import com.dbvisit.replicate.plog.domain.DomainRecord;
 import com.dbvisit.replicate.plog.domain.DomainRecordType;
 import com.dbvisit.replicate.plog.domain.HeaderRecord;
-import com.dbvisit.replicate.plog.domain.LogicalChangeRecord;
+import com.dbvisit.replicate.plog.domain.ChangeRowRecord;
 import com.dbvisit.replicate.plog.domain.TransactionInfoRecord;
 import com.dbvisit.replicate.plog.domain.ReplicateOffset;
 import com.dbvisit.replicate.plog.domain.parser.DomainParser;
-import com.dbvisit.replicate.plog.domain.parser.LogicalChangeParser;
+import com.dbvisit.replicate.plog.domain.parser.ChangeRowParser;
 import com.dbvisit.replicate.plog.domain.parser.TransactionInfoParser;
 import com.dbvisit.replicate.plog.domain.parser.MetaDataParser;
 import com.dbvisit.replicate.plog.domain.parser.ProxyDomainParser;
@@ -58,20 +58,31 @@ public class PlogStreamReaderTest {
             InputStream is = new ByteArrayInputStream (emptyPLOGByteArray);
             DataInputStream dis = new DataInputStream (is);
             
+            DomainReader r = DomainReader.builder()
+                .persistCriteria(persistCriteria)
+                .domainParsers(domainParsers)
+                .flushLastTransactions(true)
+                .build();
+            
             /* make a fake PLOG */
-            PlogFile p = new PlogFile();
+            PlogFile p = new PlogFile(r) {
+                public boolean canUse() {
+                    return true;
+                }
+                public boolean isCompact() {
+                    return true;
+                }
+                public String getFullPath() {
+                    return "/dev/null";
+                }
+                public String getFileName() {
+                    return "mock-plog";
+                }
+            };
+            p.setHeader (new HeaderRecord());
+            p.getHeader().setCompactEncoding(true);
             
-            PlogStreamReader psr = new PlogStreamReader();
-            p.setReader(psr);
-            
-            DomainReader r = psr.getDomainReader();
-            
-            r.setDomainParsers(domainParsers);
-
-            psr.setPlog(p);
-            psr.setPlogStream(dis);
-            r.setPersistCriteria(persistCriteria);
-            r.enableFlushLastTransactions();
+            PlogStreamReader psr = new PlogStreamReader(p, r, dis);
             psr.prepare();
             
             assertTrue (
@@ -123,19 +134,31 @@ public class PlogStreamReaderTest {
             InputStream is = new ByteArrayInputStream (ddlDataPLOGByteArray);
             DataInputStream dis = new DataInputStream (is);
             
+            DomainReader r = DomainReader.builder()
+                .persistCriteria(persistCriteria)
+                .domainParsers(domainParsers)
+                .flushLastTransactions(true)
+                .build();
+                
             /* make a fake PLOG */
-            PlogFile p = new PlogFile();
+            PlogFile p = new PlogFile(r) {
+                public boolean canUse() {
+                    return true;
+                }
+                public boolean isCompact() {
+                    return true;
+                }
+                public String getFullPath() {
+                    return "/dev/null";
+                }
+                public String getFileName() {
+                    return "mock-plog";
+                }
+            };
             p.setHeader (new HeaderRecord());
             p.getHeader().setCompactEncoding(true);
-            
-            PlogStreamReader psr = new PlogStreamReader();
-            p.setReader(psr);
-            
-            psr.getDomainReader().setDomainParsers(domainParsers);
 
-            psr.setPlog(p);
-            psr.setPlogStream(dis);
-            psr.getDomainReader().setPersistCriteria(persistCriteria);
+            PlogStreamReader psr = new PlogStreamReader(p, r, dis);
             psr.prepare();
             
             assertTrue (
@@ -187,8 +210,8 @@ public class PlogStreamReaderTest {
             final int COUNT = 3;
             final DomainRecordType[] TYPES = new DomainRecordType[] {
                 DomainRecordType.METADATA_RECORD,
-                DomainRecordType.CHANGE_RECORD,
-                DomainRecordType.CHANGE_RECORD
+                DomainRecordType.CHANGEROW_RECORD,
+                DomainRecordType.CHANGEROW_RECORD
             };
             final String SCHEMA_NAME = "SOE.UNITTEST";
             final int NUM_COLUMNS = 2;
@@ -273,24 +296,30 @@ public class PlogStreamReaderTest {
             InputStream is = new ByteArrayInputStream (insertDataPLOGByteArray);
             DataInputStream dis = new DataInputStream (is);
             
+            DomainReader r = DomainReader.builder()
+                .persistCriteria(persistCriteria)
+                .domainParsers(domainParsers)
+                .flushLastTransactions(true)
+                .build();
             /* make a fake PLOG */
-            PlogFile p = new PlogFile();
+            PlogFile p = new PlogFile(r) {
+                public boolean canUse() {
+                    return true;
+                }
+                public boolean isCompact() {
+                    return true;
+                }
+                public String getFullPath() {
+                    return "/dev/null";
+                }
+                public String getFileName() {
+                    return "mock-plog";
+                }
+            };
             p.setHeader (new HeaderRecord());
             p.getHeader().setCompactEncoding(true);
-            
-            PlogStreamReader psr = new PlogStreamReader();
-            p.setReader(psr);
-            
-            DomainReader r = psr.getDomainReader();
-            
-            r.setDomainParsers(domainParsers);
 
-            psr.setPlog(p);
-            psr.setPlogStream(dis);
-            r.setPersistCriteria(persistCriteria);
-            
-            /* for TX info records */
-            r.enableFlushLastTransactions();
+            PlogStreamReader psr = new PlogStreamReader(p, r, dis);
             psr.prepare();
             
             assertTrue (
@@ -324,8 +353,8 @@ public class PlogStreamReaderTest {
             final int COUNT = 4;
             final DomainRecordType[] TYPES = new DomainRecordType[] {
                 DomainRecordType.METADATA_RECORD,
-                DomainRecordType.CHANGE_RECORD,
-                DomainRecordType.CHANGE_RECORD,
+                DomainRecordType.CHANGEROW_RECORD,
+                DomainRecordType.CHANGEROW_RECORD,
                 DomainRecordType.TRANSACTION_INFO_RECORD
             };
             final String SCHEMA_NAME = "SOE.UNITTEST";
@@ -336,13 +365,15 @@ public class PlogStreamReaderTest {
                 1,
                 ColumnDataType.NUMBER,
                 "ID",
-                1
+                1,
+                true
             );
             final ColumnValue TESTNAME_RECORD = new ColumnValue (
                 2,
                 ColumnDataType.VARCHAR2,
                 "TEST_NAME",
-                "TEST INSERT"
+                "TEST INSERT",
+                true
             );
             
             for (int l = 0; l < COUNT; l++) {
@@ -363,8 +394,8 @@ public class PlogStreamReaderTest {
                 p.getSchemas().containsKey(SCHEMA_NAME)
             );
             
-            LogicalChangeRecord dataLCR = 
-                (LogicalChangeRecord)drs.get(DATA_LCR_IDX);
+            ChangeRowRecord dataLCR = 
+                (ChangeRowRecord)drs.get(DATA_LCR_IDX);
             
             assertTrue (
                 "Expecting " + RECORD_TYPE + " LCR, found: " +
@@ -395,7 +426,7 @@ public class PlogStreamReaderTest {
             logger.info ("Record 2: " + rec2.toString());
             
             assertTrue (
-                "Expecting first column record: " + TESTNAME_RECORD.toString() + 
+                "Expecting second column record: " + TESTNAME_RECORD.toString() + 
                 ", found: " + rec2.toString(),
                 rec2.toString().equals (TESTNAME_RECORD.toString())
             );
@@ -430,19 +461,29 @@ public class PlogStreamReaderTest {
             InputStream is = new ByteArrayInputStream (updateDataPLOGByteArray);
             DataInputStream dis = new DataInputStream (is);
             
+            DomainReader r = DomainReader.builder()
+                .persistCriteria(persistCriteria)
+                .domainParsers(domainParsers)
+                .build();
             /* make a fake PLOG */
-            PlogFile p = new PlogFile();
+            PlogFile p = new PlogFile(r) {
+                public boolean canUse() {
+                    return true;
+                }
+                public boolean isCompact() {
+                    return true;
+                }
+                public String getFullPath() {
+                    return "/dev/null";
+                }
+                public String getFileName() {
+                    return "mock-plog";
+                }
+            };
             p.setHeader (new HeaderRecord());
             p.getHeader().setCompactEncoding(true);
-            
-            PlogStreamReader psr = new PlogStreamReader();
-            p.setReader(psr);
-            
-            psr.getDomainReader().setDomainParsers(domainParsers);
 
-            psr.setPlog(p);
-            psr.setPlogStream(dis);
-            psr.getDomainReader().setPersistCriteria(persistCriteria);
+            PlogStreamReader psr = new PlogStreamReader(p, r, dis);
             psr.prepare();
             
             assertTrue (
@@ -476,8 +517,8 @@ public class PlogStreamReaderTest {
             final int COUNT = 3;
             final DomainRecordType[] TYPES = new DomainRecordType[] {
                 DomainRecordType.METADATA_RECORD,
-                DomainRecordType.CHANGE_RECORD,
-                DomainRecordType.CHANGE_RECORD
+                DomainRecordType.CHANGEROW_RECORD,
+                DomainRecordType.CHANGEROW_RECORD
             };
             final String SCHEMA_NAME = "SOE.UNITTEST";
             final ChangeAction RECORD_TYPE = ChangeAction.UPDATE;
@@ -487,13 +528,15 @@ public class PlogStreamReaderTest {
                 1,
                 ColumnDataType.NUMBER,
                 "ID",
-                1
+                1,
+                false
             );
             final ColumnValue TESTNAME_RECORD = new ColumnValue (
                 2,
                 ColumnDataType.VARCHAR2,
                 "TEST_NAME",
-                "TEST UPDATE"
+                "TEST UPDATE",
+                false
             );
             
             for (int l = 0; l < COUNT; l++) {
@@ -514,8 +557,8 @@ public class PlogStreamReaderTest {
                 p.getSchemas().containsKey(SCHEMA_NAME)
             );
             
-            LogicalChangeRecord dataLCR = 
-                (LogicalChangeRecord)drs.get(DATA_LCR_IDX);
+            ChangeRowRecord dataLCR = 
+                (ChangeRowRecord)drs.get(DATA_LCR_IDX);
             
             assertTrue (
                 "Expecting " + RECORD_TYPE + " LCR, found: " +
@@ -546,7 +589,7 @@ public class PlogStreamReaderTest {
             logger.info ("Record 2: " + rec2.toString());
             
             assertTrue (
-                "Expecting first column record: " + TESTNAME_RECORD.toString() + 
+                "Expecting second column record: " + TESTNAME_RECORD.toString() + 
                 ", found: " + rec2.toString(),
                 rec2.toString().equals (TESTNAME_RECORD.toString())
             );
@@ -565,19 +608,30 @@ public class PlogStreamReaderTest {
             InputStream is = new ByteArrayInputStream (deleteDataPLOGByteArray);
             DataInputStream dis = new DataInputStream (is);
             
+            DomainReader r = DomainReader.builder()
+                .persistCriteria(persistCriteria)
+                .domainParsers(domainParsers)
+                .build();
+            
             /* make a fake PLOG */
-            PlogFile p = new PlogFile();
+            PlogFile p = new PlogFile(r) {
+                public boolean canUse() {
+                    return true;
+                }
+                public boolean isCompact() {
+                    return true;
+                }
+                public String getFullPath() {
+                    return "/dev/null";
+                }
+                public String getFileName() {
+                    return "mock-plog";
+                }
+            };
             p.setHeader (new HeaderRecord());
             p.getHeader().setCompactEncoding(true);
-            
-            PlogStreamReader psr = new PlogStreamReader();
-            p.setReader(psr);
-            
-            psr.getDomainReader().setDomainParsers(domainParsers);
 
-            psr.setPlog(p);
-            psr.setPlogStream(dis);
-            psr.getDomainReader().setPersistCriteria(persistCriteria);
+            PlogStreamReader psr = new PlogStreamReader(p, r, dis);
             psr.prepare();
             
             assertTrue (
@@ -612,8 +666,8 @@ public class PlogStreamReaderTest {
             final int COUNT = 3;
             final DomainRecordType[] TYPES = new DomainRecordType[] {
                 DomainRecordType.METADATA_RECORD,
-                DomainRecordType.CHANGE_RECORD,
-                DomainRecordType.CHANGE_RECORD
+                DomainRecordType.CHANGEROW_RECORD,
+                DomainRecordType.CHANGEROW_RECORD
             };
             final String SCHEMA_NAME = "SOE.UNITTEST";
             final ChangeAction RECORD_TYPE = ChangeAction.DELETE;
@@ -623,13 +677,15 @@ public class PlogStreamReaderTest {
                 1,
                 ColumnDataType.NUMBER,
                 "ID",
-                1
+                1,
+                false
             );
             final ColumnValue TESTNAME_RECORD = new ColumnValue (
                 2,
                 ColumnDataType.VARCHAR2,
                 "TEST_NAME",
-                "TEST UPDATE"
+                "TEST UPDATE",
+                false
             );
             
             for (int l = 0; l < COUNT; l++) {
@@ -650,8 +706,8 @@ public class PlogStreamReaderTest {
                 p.getSchemas().containsKey(SCHEMA_NAME)
             );
             
-            LogicalChangeRecord dataLCR = 
-                (LogicalChangeRecord)drs.get(DATA_LCR_IDX);
+            ChangeRowRecord dataLCR = 
+                (ChangeRowRecord)drs.get(DATA_LCR_IDX);
             
             assertTrue (
                 "Expecting " + RECORD_TYPE + " LCR, found: " +
@@ -682,7 +738,7 @@ public class PlogStreamReaderTest {
             logger.info ("Record 2: " + rec2.toString());
             
             assertTrue (
-                "Expecting first column record: " + TESTNAME_RECORD.toString() + 
+                "Expecting second column record: " + TESTNAME_RECORD.toString() + 
                 ", found: " + rec2.toString(),
                 rec2.toString().equals (TESTNAME_RECORD.toString())
             );
@@ -718,23 +774,33 @@ public class PlogStreamReaderTest {
                 fail ("Mine test path resource is not setup correctly");
             }
             
+            DomainReader r = DomainReader.builder()
+                .persistCriteria(persistCriteria)
+                .domainParsers(domainParsers)
+                .mergeMultiPartRecords(true)
+                .flushLastTransactions(true)
+                .build();
+
             /* make a fake PLOG */
-            PlogFile p = new PlogFile();
+            PlogFile p = new PlogFile(r, dis) {
+                public boolean canUse() {
+                    return true;
+                }
+                public boolean isCompact() {
+                    return true;
+                }
+                public String getFullPath() {
+                    return "/dev/null";
+                }
+            };
             p.setId(492);
             p.setTimestamp(1473711131);
             p.setFileName("429.plog.1473711131");
             p.setBaseDirectory(resURL.getFile());
             p.setHeader (new HeaderRecord());
             p.getHeader().setCompactEncoding(true);
-            
-            PlogStreamReader psr = new PlogStreamReader();
-            p.setReader(psr);
-            
-            psr.getDomainReader().setDomainParsers(domainParsers);
 
-            psr.setPlog(p);
-            psr.setPlogStream(dis);
-            psr.getDomainReader().setPersistCriteria(persistCriteria);
+            final PlogStreamReader psr = p.getReader();
             psr.prepare();
             
             assertTrue (
@@ -861,26 +927,37 @@ public class PlogStreamReaderTest {
                 fail ("Mine test path resource is not setup correctly");
             }
             
+            DomainReader r = DomainReader.builder()
+                .persistCriteria(persistCriteria)
+                .domainParsers(domainParsers)
+                .parseCriteria(parseCriteria)
+                .mergeMultiPartRecords(true)
+                .flushLastTransactions(true)
+                .build();
+            
             /* make a fake PLOG */
-            PlogFile p = new PlogFile();
+            PlogFile p = new PlogFile(r, dis) {
+                public boolean canUse() {
+                    return true;
+                }
+                public boolean isCompact() {
+                    return true;
+                }
+                public String getFullPath() {
+                    return "/dev/null";
+                }
+            };
             p.setId(492);
             p.setTimestamp(1473711131);
             p.setFileName("429.plog.1473711131");
             p.setBaseDirectory(resURL.getFile());
             p.setHeader (new HeaderRecord());
             p.getHeader().setCompactEncoding(true);
-            
-            PlogStreamReader psr = new PlogStreamReader();
-            p.setReader(psr);
-            
-            psr.getDomainReader().setDomainParsers(domainParsers);
 
-            psr.setPlog(p);
-            psr.setPlogStream(dis);
-            psr.getDomainReader().setParseCriteria(parseCriteria);
-            psr.getDomainReader().setPersistCriteria(persistCriteria);
+            // need to inject this final psr into Plog
+            final PlogStreamReader psr = p.getReader();
             psr.prepare();
-            
+
             assertTrue (
                 "Expecting valid PLOG stream",
                 p.isValid()
@@ -1007,21 +1084,29 @@ public class PlogStreamReaderTest {
 
                 Map<Long, Integer> offsets = 
                     new LinkedHashMap <Long, Integer>();
-                PlogFile plog = new PlogFile (id, 0, resURL.getFile());
                 
+                DomainReader domainReader = DomainReader.builder()
+                    .persistCriteria(persistCriteria)
+                    .parseCriteria(
+                        new AndCriteria<EntrySubType> (
+                            new TypeCriteria<EntrySubType> (filter),
+                            new InternalDDLFilterCriteria<EntrySubType>()
+                        )
+                    )
+                    .domainParsers(domainParsers)
+                    .mergeMultiPartRecords(true)
+                    .flushLastTransactions(true)
+                    .build();
+                
+                PlogFile plog = new PlogFile (
+                    id,
+                    0,
+                    resURL.getFile(),
+                    domainReader
+                );
                 plog.open ();
                 
-                PlogStreamReader reader = plog.getReader();
-                DomainReader domainReader = reader.getDomainReader();
-                
-                domainReader.setDomainParsers(domainParsers);
-                domainReader.setPersistCriteria(persistCriteria);
-                domainReader.setParseCriteria(
-                    new AndCriteria<EntrySubType> (
-                        new TypeCriteria<EntrySubType> (filter),
-                        new InternalDDLFilterCriteria<EntrySubType>()
-                    )
-                );
+                final PlogStreamReader reader = plog.getReader();
                 
                 reader.setFlushSize(1);
                 
@@ -1130,18 +1215,25 @@ public class PlogStreamReaderTest {
 
                 Map<Long, Integer> offsets = 
                     new LinkedHashMap <Long, Integer>();
-                PlogFile plog = new PlogFile (id, 0, resURL.getFile());
+                
+                DomainReader domainReader = DomainReader.builder()
+                    .parseCriteria(new TypeCriteria<EntrySubType> (filter))
+                    .persistCriteria(persistCriteria)
+                    .domainParsers(domainParsers)
+                    .mergeMultiPartRecords(true)
+                    .flushLastTransactions(true)
+                    .build();
+                
+                PlogFile plog = new PlogFile (
+                    id, 
+                    0, 
+                    resURL.getFile(), 
+                    domainReader
+                );
                 
                 plog.open ();
                 
                 PlogStreamReader reader = plog.getReader();
-                DomainReader domainReader = reader.getDomainReader();
-                
-                domainReader.setDomainParsers(domainParsers);
-                domainReader.setPersistCriteria(persistCriteria);
-                domainReader.setParseCriteria(
-                    new TypeCriteria<EntrySubType> (filter)
-                );
                 
                 reader.setFlushSize(1);
                 while (!reader.isDone()) {
@@ -1211,7 +1303,7 @@ public class PlogStreamReaderTest {
             put (
                 EntryType.ETYPE_CONTROL, 
                 new DomainParser[] { 
-                    new LogicalChangeParser() 
+                    new ChangeRowParser() 
                 }
             );
             put (
@@ -1223,7 +1315,7 @@ public class PlogStreamReaderTest {
             put (
                 EntryType.ETYPE_LCR_DATA,
                 new DomainParser[] {
-                    new LogicalChangeParser(),
+                    new ChangeRowParser(),
                     txParser
                 }
             );
@@ -2092,6 +2184,5 @@ public class PlogStreamReaderTest {
         5, 0, 0, 0, 80, 76, 79, 71, 
         32, 69, 78, 68, 0, 0, 0, 0
     };
-
+    
 }
-

@@ -47,10 +47,12 @@ public class ColumnValue {
     /** Position of LOB part within multi-part LOB */
     @JsonIgnore
     private int  lobPosition;
-    
-    /** Whether or not this column is part of supplementally logged key */
-    @JsonIgnore
-    private boolean isKey = false;
+    /** Whether or not this column value is part of supplementally logged key
+     *  for change record */
+    private boolean isSupLogKey = false;
+    /** Whether or not this column value is considered to be part of record
+     *  key, usually a key constraint (PK or UQ) */
+    private boolean isKeyValue = false;
     
     /**
      * Create empty column value
@@ -64,17 +66,20 @@ public class ColumnValue {
      * @param type  Column data type
      * @param name  Column name
      * @param value Decoded column value, as Java type
+     * @param isKey Whether or not this column value is for a key
      */
     public ColumnValue(
         int            id,
         ColumnDataType type,
         String         name,
-        Object         value
+        Object         value,
+        boolean        isKey
     ) {
-        this.id    = id;
-        this.type  = type;
-        this.name  = name;
-        this.value = value;
+        this.id          = id;
+        this.type        = type;
+        this.name        = name;
+        this.value       = value;
+        this.isKeyValue  = isKey;
     }
     
     /**
@@ -221,12 +226,13 @@ public class ColumnValue {
     }
     
     /**
-     * Set whether or not this column is part of supplemental key
+     * Set whether or not this column is supplemental logged as key for
+     * given change action
      * 
-     * @param isKey true if part of key, else false
+     * @param isSupLogKey true if part of key, else false
      */
-    public void setIsKey (boolean isKey) {
-        this.isKey = isKey;
+    public void setIsSupLogKey (boolean isSupLogKey) {
+        this.isSupLogKey = isSupLogKey;
     }
     
     /**
@@ -235,9 +241,9 @@ public class ColumnValue {
      * 
      * @return true if part of supplemental key, else false
      */
-    @JsonIgnore
-    public boolean isKey () {
-        return this.isKey;
+    @JsonProperty ("isSupLogKey")
+    public boolean isSupLogKey () {
+        return this.isSupLogKey;
     }
     
     /** Value as string for logging
@@ -275,7 +281,28 @@ public class ColumnValue {
      */
     public String toString () {
         return "Column " + id + " name: " + name + " type: " + type +
-               " value: " + getValueAsString();
+               " value: " + getValueAsString() + " isKey: " + isKeyValue;
+    }
+    
+    /**
+     * Set whether or not this value is for an actual key column, as in 
+     * a key constraint as defined in source or should act like one
+     * 
+     * @param isKeyValue true if this column is a key
+     */
+    public void setIsKeyValue (boolean isKeyValue) {
+        this.isKeyValue = isKeyValue;
+    }
+    
+    /** 
+     * Return whether or not this value is for an actual key column, as in 
+     * a key constraint as defined in source or should act like one
+     * 
+     * @return true if value is for a key column, else false
+     */
+    @JsonProperty ("isKeyValue")
+    public boolean isKeyValue () {
+        return isKeyValue;
     }
     
 }

@@ -23,7 +23,8 @@ import com.dbvisit.replicate.plog.format.EntryTagRecord;
 /** 
  * Parses tag records for a PLOG entry from PLOG input stream
  */
-public class EntryTagRecordParser extends Parser implements IParser {
+public class EntryTagRecordParser extends FormatParser implements IFormatParser
+{
     /** Use as singleton, it has no state */
     private EntryTagRecordParser () {}
     /** Use a single instance of the entry tag record parser */

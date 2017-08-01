@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,22 +38,15 @@ import com.dbvisit.replicate.plog.format.decoder.SimpleDataDecoder;
 import com.dbvisit.replicate.plog.format.EntryTagRecord;
 import com.dbvisit.replicate.plog.format.EntryTagType;
 import com.dbvisit.replicate.plog.format.parser.EntryRecordParser;
-import com.dbvisit.replicate.plog.format.parser.IParser;
-import com.dbvisit.replicate.plog.format.parser.Parser.StreamClosedException;
+import com.dbvisit.replicate.plog.format.parser.IFormatParser;
+import com.dbvisit.replicate.plog.format.parser.FormatParser.StreamClosedException;
 import com.dbvisit.replicate.plog.reader.criteria.Criteria;
 import com.dbvisit.replicate.plog.reader.criteria.InternalDDLFilterCriteria;
 
 /**
- * Read raw data in PLOG and convert to domain objects.
- * 
- * <p>
- * The state or parse behavior of this class should should not be changed or
- * shared, one domain reader per PLOG stream, each opened on its own version
- * of PLOG file handle. For now it is not enforced, change this to be 
- * immutable and created by builder. Remove public API used by testing.
- * </p>
+ * Read raw data in PLOG and convert to domain objects
  */
-public class DomainReader {
+public final class DomainReader {
     /** Default wait time for arrival of new data at EOF of open PLOG stream */
     private static final int WAIT_TIME_MS = 1000;
     /** Define the interval of waits between reporting a DEBUG message */
@@ -66,56 +60,247 @@ public class DomainReader {
 
     /** Post filter criteria for filtering PLOG entries or domain records */
     @SuppressWarnings("rawtypes")
-    private Criteria filterCriteria;
+    private final Criteria filterCriteria;
     /** Parse criteria for converting PLOG entries to domain records */
     @SuppressWarnings("rawtypes")
-    private Criteria parseCriteria;
+    private final Criteria parseCriteria;
     /** Persist type criteria for persisting domain records parsed from PLOG */
     @SuppressWarnings("rawtypes")
-    private Criteria persistCriteria;
-    /** Raw entry data parser */
-    private final IParser parser;
-    /** PLOG entry record parsed */
-    private EntryRecord rec;
+    private final Criteria persistCriteria;
     /** Domain record parsers lookup per PLOG entry record type */
-    private Map <EntryType, DomainParser[]> domainParsers;
-    /** Domain reader is done when footer of PLOG has been read */
-    private boolean done = false;
+    private final Map <EntryType, DomainParser[]> domainParsers;
+    /** Raw entry data parser */
+    private final IFormatParser parser;
+    /** Default filter, always used */
+    @SuppressWarnings("rawtypes")
+    private final Criteria defaultCriteria;
     /** Domain reader is dedicated to reading aggregates */
-    private boolean aggregateReader = false;
-    /** Filter internal meta data by default */
-    private final Criteria<EntrySubType> defaultCriteria;
+    private final boolean aggregateReader;
+    /** Emit any PLOG transaction data at end of file */
+    private final boolean flushLastTransactions;
     /** Local cache of cached schema names */
     private final Map<Integer, String> schemaCache;
-    /** Emit any PLOG transaction data at end of file */
-    private boolean flushLastTransactions = false;
+
     /** Counter for recording how many times we've been waiting for new data */
     private int waiting;
 
     /**
+     * Build a correctly configured immutable <em>DomainReader</em>
+     */
+    @SuppressWarnings("rawtypes")
+    public static class DomainReaderBuilder {
+        private Criteria filterCriteria;
+        private Criteria parseCriteria;
+        private Criteria persistCriteria;
+        private Criteria defaultCriteria;
+        private Map <EntryType, DomainParser[]> domainParsers;
+        private boolean aggregateReader;
+        private boolean flushLastTransactions;
+        private boolean mergeMultiPartRecords;
+        
+        public DomainReaderBuilder() {}
+        
+        /**
+         * Set the criteria that determines whether or not to filter a PLOG entry
+         * and/or domain record after parsing
+         * 
+         * @param criteria Any criteria that can be used as filter criteria
+         * @return this builder
+         */
+        public DomainReaderBuilder filterCriteria(final Criteria criteria) {
+            filterCriteria = criteria;
+            return this;
+        }
+        
+        /** 
+         * Set the criteria that determines which raw PLOG records are parsed 
+         * and possible emitted as domain records
+         *  
+         * @param criteria Any criteria that can be used as parse criteria
+         * @return this builder
+         */
+        public DomainReaderBuilder parseCriteria(final Criteria criteria) {
+            parseCriteria = criteria;
+            return this;
+        }
+        
+        /** 
+         * Set the criteria that determines which domain records parsed from 
+         * PLOG should be persisted to domain cache in caller
+         * 
+         * @param criteria Any criteria that can be used as persist criteria
+         * @return this builder                      
+         */
+        public DomainReaderBuilder persistCriteria(final Criteria criteria) {
+            persistCriteria = criteria;
+            return this;
+        }
+        
+        /**
+         * Set the criteria to be used as default filter, usually this is
+         * set to filter internal dbvrep schema objects and DDL, but could
+         * be anything. Note this criteria is always used by default
+         * 
+         * @param criteria default criteria to apply to all LCRs
+         * @return this builder
+         */
+        public DomainReaderBuilder defaultCriteria(final Criteria criteria) {
+            defaultCriteria = criteria;
+            return this;
+        }
+        
+        /**
+         * Set the domain parsers to use by the domain reader for parsing and
+         * converting raw PLOG format records to domain records to emit, 
+         * grouped by type of PLOG entry record, each type may be parsed by 
+         * multiple domain parsers
+         * 
+         * @param domainParsers the domain parsers to use, grouped by type of 
+         *                      PLOG
+         * @return this builder 
+         */
+        public DomainReaderBuilder domainParsers(
+            final Map <EntryType, DomainParser[]> domainParsers
+        ) {
+            this.domainParsers = domainParsers;
+            
+            return this;
+        }
+        
+        /**
+         * Set whether or not this reader will be reading aggregate records, 
+         * this allows adjusting the parse behavior of the aggregate domain
+         * parser (only)
+         * 
+         * @param aggregateReader true if it has an aggregate domain parser 
+         *                        registered, else false
+         * @return this builder
+         */
+        public DomainReaderBuilder aggregateReader(
+            final boolean aggregateReader
+        ) {
+            this.aggregateReader = aggregateReader;
+            return this;
+        }
+        
+        /**
+         * Set whether or not the domain reader should flush the last 
+         * transactions at PLOG boundary, these may not be complete, 
+         * but it's up to the caller to decide how to handle these
+         * 
+         * @param flushLastTransactions true or false
+         * @return this builder
+         */
+        public DomainReaderBuilder flushLastTransactions (
+            final boolean flushLastTransactions
+        ) {
+            this.flushLastTransactions = flushLastTransactions;
+            return this;
+        }
+        
+        /**
+         * Set whether or not the domain parsers used by domain reader being
+         * built will enable the merging of multi-part records, each parser
+         * will have its own interpretation of what that means
+         * 
+         * @param mergeMultiPartRecords true or false
+         * @return this builder
+         */
+        public DomainReaderBuilder mergeMultiPartRecords (
+            final boolean mergeMultiPartRecords
+        ){ 
+            this.mergeMultiPartRecords = mergeMultiPartRecords;
+            return this;
+        }
+        
+        private void validate() throws Exception {
+            /* validate requirements for valid domain reader */
+            if (domainParsers == null ||domainParsers.size() == 0) {
+                throw new Exception (
+                    "Unable to build a domain reader without domain " +
+                    "parsers"
+                );
+            }
+            
+            if (defaultCriteria == null && aggregateReader) {
+                /* default to filter all internal DDL for aggregate readers */
+                defaultCriteria = 
+                    new InternalDDLFilterCriteria<EntrySubType>();
+            }
+        }
+        
+        /**
+         * Iterates through the registered domain parser and set them into their
+         * merge mode that allows merging multi-part records into one complete
+         * view, only if the individual parsers support it
+         * 
+         * @throws Exception if any of the parsers did not support merging, but
+         *                   tried to set their mode to merge
+         */
+        private void enableMultiPartMerging () throws Exception {
+            if (domainParsers != null) {
+                for (DomainParser[] dps : domainParsers.values()) {
+                    for (DomainParser dp : dps) {
+                        if (dp.supportMultiPartMerging()) {
+                            dp.enableMultiPartMerging();
+                        }
+                    }
+                }
+            }
+        }
+        
+        public DomainReader build() throws Exception {
+            validate();
+            
+            if (mergeMultiPartRecords) {
+                enableMultiPartMerging();
+            }
+            
+            return new DomainReader(
+                filterCriteria,
+                parseCriteria,
+                persistCriteria,
+                defaultCriteria,
+                domainParsers,
+                aggregateReader,
+                flushLastTransactions
+            );
+        }
+    }
+    
+    public static DomainReaderBuilder builder() {
+        return new DomainReaderBuilder();
+    }
+    
+    /**
      * Create and initialize a clean domain reader
      */
-    public DomainReader () {
-        parser          = EntryRecordParser.getParser();
-        domainParsers   = new HashMap<EntryType, DomainParser[]>();
-        defaultCriteria = new InternalDDLFilterCriteria<>();
-        schemaCache     = new HashMap<Integer, String>();
-        waiting         = 0;
-    }
-
-    /** 
-     * Set the criteria that determines which domain records parsed from PLOG
-     * should be persisted to domain cache
-     * 
-     * @param persistCriteria Any criteria that can be used as persist criteria
-     */
-    public void setPersistCriteria (
-        @SuppressWarnings("rawtypes")
-        Criteria persistCriteria
+    @SuppressWarnings("rawtypes")
+    private DomainReader (
+        final Criteria filterCriteria,
+        final Criteria parseCriteria,
+        final Criteria persistCriteria,
+        final Criteria defaultCriteria,
+        final Map <EntryType, DomainParser[]> domainParsers,
+        final boolean aggregateReader,
+        final boolean flushLastTransactions
     ) {
-        this.persistCriteria = persistCriteria;
-    }
+        this.filterCriteria        = filterCriteria;
+        this.parseCriteria         = parseCriteria;
+        this.persistCriteria       = persistCriteria;
+        this.defaultCriteria       = defaultCriteria;
+        this.domainParsers         = domainParsers;
+        this.aggregateReader       = aggregateReader;
+        this.flushLastTransactions = flushLastTransactions;
+        
+        /* internal state, not done by builder */
+        parser      = EntryRecordParser.getParser();
+        schemaCache = new HashMap<Integer, String>();
+        waiting     = 0;
 
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+    }
+    
     /**
      * Return the persist criteria used to determine which records to persist
      * to domain cache for flushing later
@@ -125,20 +310,6 @@ public class DomainReader {
     @SuppressWarnings("rawtypes")
     public Criteria getPersistCriteria () {
         return this.persistCriteria;
-    }
-
-    /**
-     * Set the criteria that determines whether or not to filter a PLOG entry
-     * and/or domain record after parsing
-     * 
-     * @param filterCriteria Any criteria that can be used as filter criteria
-     */
-    public void setFilterCriteria (
-       @SuppressWarnings("rawtypes") 
-       Criteria filterCriteria
-    ) {
-        /* post filter criteria */
-        this.filterCriteria = filterCriteria;
     }
 
     /**
@@ -153,20 +324,6 @@ public class DomainReader {
         return this.filterCriteria;
     }
 
-    /** 
-     * Set the criteria that determines which raw PLOG records are parsed and
-     * possible emitted as domain records
-     *  
-     * @param parseCriteria Any criteria that can be used as parse criteria
-     */
-    public void setParseCriteria (
-        @SuppressWarnings("rawtypes") 
-        Criteria parseCriteria
-    ) {
-        /* parse criteria */
-        this.parseCriteria = parseCriteria;
-    }
-
     /**
      * Return the criteria that determines whether or not a PLOG entry record
      * needs to be parsed and converted to domain objects
@@ -177,20 +334,7 @@ public class DomainReader {
     public Criteria getParseCriteria () {
         return this.parseCriteria;
     }
-
-    /**
-     * Set the domain parsers to use by this domain reader for parsing and
-     * converting raw PLOG format records to domain records to emit, grouped
-     * by type of PLOG entry record, each type may be parsed by multiple
-     * domain parsers
-     * 
-     * @param domainParsers the domain parsers to use, grouped by type of PLOG
-     *                      entry type records that they are interested in
-     */
-    public void setDomainParsers (Map<EntryType, DomainParser[]> domainParsers) {
-        this.domainParsers = domainParsers;
-    }
-
+    
     /**
      * Return the domain parsers that will be used by this domain reader
      * for parsing, this is used when inheriting parsers from a parent
@@ -201,15 +345,6 @@ public class DomainReader {
      */
     public Map<EntryType, DomainParser[]> getDomainParsers() {
         return this.domainParsers;
-    }
-
-    /**
-     * Enable the flushing of last transactions at PLOG boundary, these
-     * may not be complete, but it's up to the caller to decide how to
-     * handle these
-     */
-    public void enableFlushLastTransactions() {
-        this.flushLastTransactions = true;
     }
 
     /**
@@ -240,6 +375,7 @@ public class DomainReader {
 
         PlogFile plog = reader.getPlog();
 
+        EntryRecord rec = null;
         try {
             /* parse raw entry record */
             rec = (EntryRecord)parser.parse(reader.getPlogStream());
@@ -248,10 +384,10 @@ public class DomainReader {
             waiting = 0;
 
             /* parse SCN from tags before record owner */
-            parseEntryRecordSCN(plog);
+            parseEntryRecordSCN(plog, rec);
 
             /* parse record owner from tags or PLOG dictionary */
-            parseEntryRecordOwner(plog);
+            parseEntryRecordOwner(plog, rec);
 
             /* maintain offsets before parsing LCR */
             reader.advanceOffset(rec.getSize());
@@ -281,10 +417,12 @@ public class DomainReader {
                 );
             }
 
+            boolean hasNext = rec.isFooter() ? false : true;
+                   
             /* check if we're done before applying filter */
-            if (hasNext()) {
+            if (hasNext) {
                 EntryType entryType = rec.getSubType().getParent();
-
+                
                 /* if there are no domain parsers configured for this record 
                  * type it is skipped
                  */
@@ -296,21 +434,22 @@ public class DomainReader {
                     {
                         boolean parse = true;
 
-                        /* what about meta data filter */
-                        if (domainParser.isAggregateParser() || 
-                            parseCriteria == null)
-                        {
+                        if (defaultCriteria != null) {
                             /* apply default criteria to filter internal
                              * meta data and system tables only, parse all 
                              * other schema records
                              */
                             parse = defaultCriteria.meetCriteria(rec);
                         }
-                        else if (parseCriteria != null) {
-                             /* apply parse criteria */
-                             parse = parseCriteria.meetCriteria(rec);
+                        
+                        if (parse &&
+                            !domainParser.isAggregateParser() && 
+                            parseCriteria != null)
+                        {
+                            /* apply parse criteria */
+                            parse = parseCriteria.meetCriteria(rec);
                         }
-
+                        
                         if (parse) {
                             DomainRecord domainRecord = null;
 
@@ -346,7 +485,16 @@ public class DomainReader {
                                 }
                                 else {
                                     domainRecord.setRawRecordSize(rec.getSize());
-                                    domainRecord.setPersist(isPersistent());
+                                    if (persistCriteria != null) {
+                                        domainRecord.setPersist(
+                                            persistCriteria.meetCriteria(rec)
+                                        );
+                                    }
+                                    else {
+                                        /* default to persisting all domain 
+                                         * records parsed */
+                                        domainRecord.setPersist(true);
+                                    }
                                 }
                             }
                         }
@@ -397,7 +545,13 @@ public class DomainReader {
             /* count number of times waiting for new data to arrive */
             waiting++;
             
-            Thread.sleep (WAIT_TIME_MS);
+            try {
+                Thread.sleep (WAIT_TIME_MS);
+            }
+            catch (InterruptedException ie) {
+                /* reader is done, it has been interrupted waiting for data */
+                reader.setDone (true);
+            }
             
             /* workaround for when a replication restart failed to finalize
              * the PLOG, as in write the ending PLOG footer, wait until
@@ -454,67 +608,6 @@ public class DomainReader {
     }
 
     /**
-     * Check whether or not the raw record is of the correct type to have its
-     * parsed counterparts persisted to the domain cache
-     * 
-     * @return true if the domain record parsed from the raw record can be
-     *         persisted, else false
-     *         
-     * @throws Exception if any errors occur when performing criteria check
-     */
-    @SuppressWarnings("unchecked")
-    private boolean isPersistent () throws Exception {
-        /* default to persisting all domain records parsed from required 
-         * PLOG records*/
-        boolean persistent = true;
-        if (persistCriteria != null) {
-            persistent = persistCriteria.meetCriteria(rec);
-        }
-        return persistent;
-    }
-
-    /**
-     * Check whether or not another record exist in the PLOG stream, as in
-     * the current record is not the footer and end of PLOG stream
-     * 
-     * @return true if more data may be coming, else false if current record
-     *         is the end of the PLOG
-     */
-    private boolean hasNext () {
-        boolean next = true;
-
-        /* check if we're done */
-        if (rec.isFooter()) {
-            next = false;
-            done = true;
-        }
-
-        return next;
-    }
-
-    /**
-     * Return whether or not the domain reader is done reading, as in there
-     * is not more records from stream to read because the PLOG has ended
-     * with a footer
-     * 
-     * @return true if done reading, else false
-     */
-    public boolean isDone () {
-        return done;
-    }
-
-    /**
-     * Set whether or not this reader will be reading aggregate records, this
-     * allows adjusting the parse criteria for the aggregate domain parser
-     * 
-     * @param aggregateReader true if it has an aggregate domain parser 
-     *                        registered, else false
-     */
-    public void setIsAggregateReader (boolean aggregateReader) {
-        this.aggregateReader = aggregateReader;
-    }
-
-    /**
      * Return whether or not this reader will be reading records with an
      * aggregate domain parser, this changes behavior for proxy domain
      * parser that inherits this domain reader's aggregate parser
@@ -524,25 +617,15 @@ public class DomainReader {
     public boolean isAggregateReader () {
         return this.aggregateReader;
     }
-
+    
     /**
-     * Iterates through the registered domain parser and set them into their
-     * merge mode that allows merging multi-part records into one complete
-     * view, only if the individual parsers support it
+     * Return whether or not this reader will flush records for transactions
+     * that are not complete yet at the end of PLOG stream
      * 
-     * @throws Exception if any of the parsers did not support merging, but
-     *                   tried to set their mode to merge
+     * @return true or false
      */
-    public void enableMultiPartMerging () throws Exception {
-        if (domainParsers != null) {
-            for (DomainParser[] dps : domainParsers.values()) {
-                for (DomainParser dp : dps) {
-                    if (dp.supportMultiPartMerging()) {
-                        dp.enableMultiPartMerging();
-                    }
-                }
-            }
-        }
+    public boolean shouldFlushLastTransactions () {
+        return this.flushLastTransactions;
     }
 
     /** 
@@ -551,7 +634,8 @@ public class DomainReader {
      * 
      * @param plog PLOG file meta data
      */
-    private void parseEntryRecordOwner (PlogFile plog) throws Exception {
+    private void parseEntryRecordOwner (PlogFile plog, EntryRecord rec) 
+    throws Exception {
         String schema = null;
 
         String objectOwner = null;
@@ -564,7 +648,7 @@ public class DomainReader {
         /* object ID must always be present */
         EntryTagType type = EntryTagType.TAG_OBJ_ID;
 
-        if (rec.useColumnMetaData()) {
+        if (rec.hasOwnerMetaData()) {
             if (tags.containsKey(type)) {
                 tag = tags.get (type).get(0);
                 objectId = 
@@ -635,7 +719,8 @@ public class DomainReader {
      * 
      * @param plog PLOG file meta data
      */
-    private void parseEntryRecordSCN (PlogFile plog) throws Exception {
+    private void parseEntryRecordSCN (PlogFile plog, EntryRecord rec) 
+    throws Exception {
         Map<EntryTagType, List<EntryTagRecord>> tags = rec.getEntryTags();
         EntryTagType type  = EntryTagType.TAG_OBJ_OWNER;
         EntryTagRecord tag = null;

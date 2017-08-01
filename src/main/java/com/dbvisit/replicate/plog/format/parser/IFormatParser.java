@@ -21,7 +21,7 @@ import java.io.DataInputStream;
 /**
  * Parser interface, defines behavior that all parsers need to adhere to.
  */
-public interface IParser {
+public interface IFormatParser {
     /**
      * Parse behavior for all raw format parsers, these are parsers that
      * are reading raw format objects from a PLOG data input stream

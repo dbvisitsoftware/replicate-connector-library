@@ -1,5 +1,8 @@
 package com.dbvisit.replicate.plog.domain;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+
 /**
  * Copyright 2016 Dbvisit Software Limited
  *
@@ -27,6 +30,15 @@ public class ReplicateOffset implements Comparable<ReplicateOffset> {
     /** The byte offset within the PLOG that the record is encoded at */
     private long plogOffset;
     
+    private static final ObjectMapper mapper = 
+        new ObjectMapper()
+            .setSerializationInclusion(JsonInclude.Include.NON_NULL)
+            .setSerializationInclusion(JsonInclude.Include.NON_EMPTY)
+            .configure(
+                DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, 
+                false
+            );
+        
     /** Create empty replicate offset */
     public ReplicateOffset () { }
     
@@ -95,8 +107,6 @@ public class ReplicateOffset implements Comparable<ReplicateOffset> {
      * @throws Exception for any serialization errors
      */
     public String toJSONString () throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
-        
         return mapper.writeValueAsString(this);
     }
     
@@ -110,8 +120,6 @@ public class ReplicateOffset implements Comparable<ReplicateOffset> {
      */
     public static ReplicateOffset fromJSONString (String json) 
     throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
-        
         return mapper.readValue (json, ReplicateOffset.class);
     }
 

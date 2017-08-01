@@ -13,10 +13,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.dbvisit.replicate.plog.domain.DomainRecord;
-import com.dbvisit.replicate.plog.domain.LogicalChangeRecord;
+import com.dbvisit.replicate.plog.domain.ChangeRowRecord;
 import com.dbvisit.replicate.plog.domain.parser.DomainParser;
-import com.dbvisit.replicate.plog.domain.parser.LogicalChangeParser;
+import com.dbvisit.replicate.plog.domain.parser.ChangeRowParser;
 import com.dbvisit.replicate.plog.format.EntryType;
+import com.dbvisit.replicate.plog.reader.DomainReader;
 import com.dbvisit.replicate.plog.reader.PlogStreamReader;
 
 /** 
@@ -37,25 +38,25 @@ public class PlogFileTest {
             put (
                 EntryType.ETYPE_CONTROL, 
                 new DomainParser[] { 
-                    new LogicalChangeParser() 
+                    new ChangeRowParser() 
                 }
             );
             put (
                 EntryType.ETYPE_METADATA,
                 new DomainParser[] {  
-                    new LogicalChangeParser() 
+                    new ChangeRowParser() 
                 }
             );
             put (
                 EntryType.ETYPE_LCR_DATA,
                 new DomainParser[] {
-                    new LogicalChangeParser()
+                    new ChangeRowParser()
                 }
             );
             put (
                 EntryType.ETYPE_TRANSACTIONS, 
                 new DomainParser[] { 
-                    new LogicalChangeParser() 
+                    new ChangeRowParser() 
                 }
             );
     }};
@@ -102,7 +103,8 @@ public class PlogFileTest {
             PlogFile plog = new PlogFile (
                 PLOG_WITH_LCR_ID, 
                 PLOG_WITH_LCR_TIMESTAMP,
-                fileName
+                fileName,
+                null
             );
         
             logger.info ("Opening PLOG: " + fileName);
@@ -153,22 +155,22 @@ public class PlogFileTest {
         PlogFile plog = null;
         
         try { 
-            plog = new PlogFile (id, timestamp, fileName);
+            DomainReader domainReader = DomainReader.builder()
+                .domainParsers(domainParsers)
+                .mergeMultiPartRecords(merge)
+                .build();
+            
+            plog = new PlogFile (id, timestamp, fileName, domainReader);
             logger.info ("Opening PLOG: " + fileName);
             plog.open();
             assertTrue (plog.canUse());
             
             logger.info ("Reading PLOG: " + fileName);
             PlogStreamReader reader = plog.getReader();
-            reader.getDomainReader().setDomainParsers(domainParsers);
             
             boolean ready = reader.isReady();
             assertTrue (ready);
             
-            if (merge) {
-                reader.getDomainReader().enableMultiPartMerging();
-            }
-
             reader.setFlushSize (flushSize);
             
             /* check for partial PLOG for testing */
@@ -197,7 +199,7 @@ public class PlogFileTest {
                             " offset: " + reader.getOffset()
                         );
                         for (DomainRecord dr : drs) {
-                            LogicalChangeRecord lcr = (LogicalChangeRecord)dr;
+                            ChangeRowRecord lcr = (ChangeRowRecord)dr;
                             logger.info (lcr.toJSONString());
                         }
                     }
@@ -345,7 +347,7 @@ public class PlogFileTest {
         
         String fileName = plogDir + "/" + fname;
         try {
-            PlogFile plog = new PlogFile (id, timestamp, fileName);
+            PlogFile plog = new PlogFile (id, timestamp, fileName, null);
 
             logger.info ("Opening PLOG: " + fileName);
             plog.open();
@@ -378,7 +380,7 @@ public class PlogFileTest {
         
         String fileName = plogDir + "/" + fname;
         try {
-            PlogFile plog = new PlogFile (id, timestamp, fileName);
+            PlogFile plog = new PlogFile (id, timestamp, fileName, null);
 
             logger.info ("Opening PLOG: " + fileName);
             plog.open();

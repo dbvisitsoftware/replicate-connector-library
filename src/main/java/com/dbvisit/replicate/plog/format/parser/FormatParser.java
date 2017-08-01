@@ -22,7 +22,7 @@ import java.io.IOException;
 /** 
  * Abstract parser that implements behavior for all raw format parsers to use
  */
-public abstract class Parser {
+public abstract class FormatParser {
     @SuppressWarnings("serial")
     public class StreamClosedException extends Exception {}
 

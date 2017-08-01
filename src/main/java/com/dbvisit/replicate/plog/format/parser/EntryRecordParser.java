@@ -30,7 +30,8 @@ import com.dbvisit.replicate.plog.format.EntryTagType;
 /** 
  * Parses PLOG entry records from PLOG input stream
  */
-public class EntryRecordParser extends Parser implements IParser {
+public class EntryRecordParser extends FormatParser implements IFormatParser 
+{
     /** Use as singleton, it has no state */
     private EntryRecordParser () {}
     /** Use a single instance of the entry record parser */
@@ -75,7 +76,7 @@ public class EntryRecordParser extends Parser implements IParser {
             new HashMap<EntryTagType, List<EntryTagRecord>>();
 
         /* use tag record parser instance */
-        IParser parser = EntryTagRecordParser.getParser();
+        IFormatParser parser = EntryTagRecordParser.getParser();
 
         /* next parse the variable section of raw tags */
         int chunksRead = EntryRecord.DATA_CHUNK_OFFSET;

@@ -10,7 +10,6 @@ import org.junit.Test;
 import com.dbvisit.replicate.plog.domain.DomainRecord;
 import com.dbvisit.replicate.plog.file.PlogFile;
 import com.dbvisit.replicate.plog.format.EntrySubType;
-import com.dbvisit.replicate.plog.reader.DomainReader;
 import com.dbvisit.replicate.plog.reader.PlogStreamReader;
 
 public class SchemaCriteriaTest extends CriteriaTest {
@@ -110,13 +109,8 @@ public class SchemaCriteriaTest extends CriteriaTest {
     ) {
         /* see base class for details of data */
         try {
-            PlogFile plog = openAndValidatePLOG();
-            
-            DomainReader domainReader = plog.getReader().getDomainReader();
-           
-            domainReader.setParseCriteria(parseCriteria);
-            
-            PlogStreamReader plogStream = plog.getReader();
+            PlogStreamReader plogStream = openAndValidatePLOG(parseCriteria);
+            PlogFile plog = plogStream.getPlog();
             
             /* flush every record */
             plogStream.setFlushSize(1);
@@ -134,7 +128,7 @@ public class SchemaCriteriaTest extends CriteriaTest {
                     
                     String schema = dr.getRecordSchema();
                     
-                    if (dr.isChangeRecord()) {
+                    if (dr.isChangeRowRecord()) {
                         if (!tableDataCount.containsKey(schema)) {
                             tableDataCount.put (schema, 0);
                         }

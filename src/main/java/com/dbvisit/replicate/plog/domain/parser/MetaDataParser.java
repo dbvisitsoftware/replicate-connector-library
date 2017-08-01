@@ -179,6 +179,10 @@ public class MetaDataParser implements DomainParser {
                     
                     if (ddl.getValidSinceSCN() > md.getValidSinceSCN()) {
                         plog.setUpdatedSchema(true);
+                        DictionaryParser.mergeColumns (
+                            ddl.getTableColumns(),
+                            md.getTableColumns()
+                        );
                         plog.getSchemas().put(schemaName, ddl);
                         mdr.setComplete(true);
                     }

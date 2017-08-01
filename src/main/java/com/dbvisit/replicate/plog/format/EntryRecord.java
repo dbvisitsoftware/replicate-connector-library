@@ -313,15 +313,12 @@ public class EntryRecord implements FilterableRecord<EntrySubType> {
     /**
      * Check if this entry record is for a change action on column data, 
      * including INSERTS, UPDATES, DELETES, LOB WRITES, NO OPERATIONS and DDL. 
-     * All of these may have column meta data fields encoded, however for
-     * compact PLOGs these will only be present in first record of this
-     * type in each PLOG. For verify that the actual LCR contains the
-     * correct encoded fields see <em>canParseColumnMetaData()</em>
+     * All of these may have owner meta data fields encoded,
      * 
-     * @return true if LCR may contain fields to parse for column meta data,
-     *         needed when building table dictionary, else false
+     * @return true if LCR may contain fields to parse for owner meta data,
+     *         else false
      */
-    public boolean useColumnMetaData () {
+    public boolean hasOwnerMetaData () {
         return (subType.equals (EntrySubType.ESTYPE_LCR_INSERT) ||
                 subType.equals (EntrySubType.ESTYPE_LCR_UPDATE) ||
                 subType.equals (EntrySubType.ESTYPE_LCR_DELETE) ||
@@ -339,8 +336,9 @@ public class EntryRecord implements FilterableRecord<EntrySubType> {
      * @return true if this record contains column meta data fields to parse
      *         as the table dictionary, else false
      */
-    public boolean canParseColumnMetaData () {
-        return entryTags.containsKey(EntryTagType.TAG_COL_ID) &&
+    public boolean hasColumnMetaData () {
+        return subType.equals (EntrySubType.ESTYPE_LCR_NOOP) &&
+               entryTags.containsKey(EntryTagType.TAG_COL_ID) &&
                entryTags.containsKey(EntryTagType.TAG_COL_NAME) &&
                entryTags.containsKey(EntryTagType.TAG_COL_TYPE);
     }

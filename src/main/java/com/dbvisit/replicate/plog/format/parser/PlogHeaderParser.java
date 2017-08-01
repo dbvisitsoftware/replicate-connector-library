@@ -24,7 +24,7 @@ import com.dbvisit.replicate.plog.format.PlogHeader;
  * Parses the PLOG file header from the start of an input data stream 
  * opened on what may be a PLOG file
  */
-public class PlogHeaderParser extends Parser implements IParser {
+public class PlogHeaderParser extends FormatParser implements IFormatParser {
     /** Use as singleton, it has no state */
     private PlogHeaderParser() {}
     /** The instance of PLOG file header parser */

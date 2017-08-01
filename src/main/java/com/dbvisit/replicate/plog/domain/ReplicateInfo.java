@@ -1,5 +1,6 @@
 package com.dbvisit.replicate.plog.domain;
 
+
 /**
  * Copyright 2016 Dbvisit Software Limited
  *
@@ -17,6 +18,12 @@ package com.dbvisit.replicate.plog.domain;
  **/
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonView;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+
+import com.dbvisit.replicate.plog.domain.util.JSONConverterView;
 
 /**
  * Provide the details of a replicated schema in the replicate data stream 
@@ -28,10 +35,19 @@ public class ReplicateInfo {
     private Long dataOffset;
     /** The full identifier for replicated object */
     private String identifier;
-    /** Replicated schema has been sent  */
+    /** Replicated schema has been sent, internal and not public by default */
     private boolean sent = false;
     /** Aggregate use only, may not be real replicated object */
     private boolean aggregate = false;
+    
+    private static final ObjectMapper mapper = 
+        new ObjectMapper()
+            .setSerializationInclusion(JsonInclude.Include.NON_NULL)
+            .setSerializationInclusion(JsonInclude.Include.NON_EMPTY)
+            .configure(
+                DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, 
+                false
+            );
     
     /**
      * Set the UID of PLOG where the replicate schema is defined at
@@ -106,20 +122,22 @@ public class ReplicateInfo {
     
     /**
      * Check whether or not this replicate info record has been sent
-     * and processed at the callers' end
+     * and processed at the callers' end. This is only used by internal
+     * view and not used by public view
      * 
      * @return true if it has been processed, else false
      */
+    @JsonProperty("sent") @JsonView(JSONConverterView.Internal.class)
     public boolean sent () {
         return this.sent;
     }
-
+    
     /**
      * Set whether or not the schema associated with replicate is real or
      * an aggregate, which may not be real, like the transaction information
      * records stream
      * 
-     * @param aggregate true if replicated object is an aggreate and not a 
+     * @param aggregate true if replicated object is an aggregate and not a 
      *                  real table, else false
      */
     public void setAggregate (boolean aggregate) {
@@ -161,18 +179,21 @@ public class ReplicateInfo {
      * @return String 
      */
     public String toString () {
-        String str = null;
+        StringBuilder sb = new StringBuilder();
         
-        if (plogUID != null && identifier != null) {
-            str = plogUID     + ":" + 
-                  dataOffset + ":" +
-                  identifier;
-        }
-        else {
-            str = "0:0:n/a";
-        }
+        sb.append("Replicate info")
+          .append(" UID: ")
+          .append(plogUID != null ? plogUID : -1L)
+          .append(" offset: ")
+          .append(dataOffset != null ? dataOffset : -1L)
+          .append(" identifier: ")
+          .append(identifier != null ? identifier : "n/a")
+          .append(" sent: ")
+          .append(sent)
+          .append(" aggregate: ")
+          .append(aggregate);
         
-        return str;
+        return sb.toString();
     }
 
     /**
@@ -182,9 +203,30 @@ public class ReplicateInfo {
      * @throws Exception for any serialization errors
      */
     public String toJSONString () throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
-        
         return mapper.writeValueAsString(this);
+    }
+    
+    /**
+     * Serialize this replicate info record either using public or
+     * internal JSON format
+     * 
+     * @param publicView use public format for JSON, else internal
+     * 
+     * @return JSON string 
+     * @throws Exception for any serialization errors
+     */
+    public String toJSONString (boolean publicView) throws Exception {
+        String json = null;
+        
+        if (publicView) {
+            json = mapper.writerWithView(
+                JSONConverterView.Public.class
+            ).writeValueAsString(this);
+        }
+        else {
+            json = mapper.writeValueAsString(this);
+        }
+        return json;
     }
     
     /**
@@ -197,8 +239,6 @@ public class ReplicateInfo {
      */
     public static ReplicateInfo fromJSONString (String json) 
     throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
-        
         return mapper.readValue (json, ReplicateInfo.class);
     }
     

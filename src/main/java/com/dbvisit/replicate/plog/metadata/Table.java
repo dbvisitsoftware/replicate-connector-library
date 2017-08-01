@@ -21,7 +21,15 @@ import java.util.List;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * Meta data for table dictionary as decoded from row-level changes in PLOG
+ * Meta data for table dictionary as decoded from row-level changes in PLOG.
+ * <p>
+ * This is not the same as <em>DDLMetaData</em> which the table (schema)
+ * definition as created or modified by a DDL statement in source database.
+ * Therefore there is some overlap in the two and may share certain
+ * properties but are used in a different context. The meta data contained
+ * here is used for decoding and parsing row-level changes, not global
+ * schema definitions
+ * </p>
  */
 public class Table {
     /** The ID for table object in Oracle dictionary */
@@ -36,6 +44,11 @@ public class Table {
     /** The list of incomplete column data decoded from a row level change */
     @JsonProperty("tableColumns")
     private List<Column> columns;
+    /** 
+     * Whether or not the table dictionary has a key constraint which may
+     * be either a primary or unique key constraint
+     */
+    private Boolean hasKey = false;
 
     /**
      * Set the object ID of table in Oracle
@@ -122,5 +135,37 @@ public class Table {
                "name:"      + name  + " " +
                "columns: "  + columns.toString();
     }
+    
+    /**
+     * Return fully qualified table name
+     * 
+     * @return fully qualified table name
+     */
+    public String getFullName() {
+        return (
+            owner != null && name != null
+            ? owner + "." + name
+            : null
+        );
+                    
+    }
 
+    /**
+     * Set whether or not the table dictionary has key constraints available
+     * 
+     * @param hasKey true if table has key constraints, else false
+     */
+    public void setHasKey (boolean hasKey) {
+        this.hasKey = hasKey;
+    }
+
+    /**
+     * Return whether or not the table dictionary has key constraints available
+     * 
+     * @return true if table has key constraints, else false
+     */
+    public boolean hasKey() {
+        return hasKey;
+    }
+    
 }

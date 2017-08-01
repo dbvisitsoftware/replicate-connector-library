@@ -60,7 +60,7 @@ public class InternalDDLFilterCriteria<T> implements Criteria<T> {
         }
 
         String schemaName = rec.getRecordSchema();
-
+        
         /* pass by default, this is a filter */
         boolean pass = true;
 

@@ -1,5 +1,7 @@
 package com.dbvisit.replicate.plog.file;
 
+import java.io.DataInputStream;
+
 /**
  * Copyright 2016 Dbvisit Software Limited
  *
@@ -24,10 +26,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.dbvisit.replicate.plog.domain.HeaderRecord;
-import com.dbvisit.replicate.plog.domain.LogicalChangeRecord;
+import com.dbvisit.replicate.plog.domain.ChangeRowRecord;
 import com.dbvisit.replicate.plog.domain.TransactionInfoRecord;
 import com.dbvisit.replicate.plog.metadata.DDLMetaData;
 import com.dbvisit.replicate.plog.metadata.Table;
+import com.dbvisit.replicate.plog.reader.DomainReader;
 import com.dbvisit.replicate.plog.reader.PlogStreamReader;
 
 /** 
@@ -66,7 +69,7 @@ public class PlogFile {
     /** Filename of this PLOG on disk */
     private String fileName;
     /** Each PLOG has it's own PLOG stream reader */
-    private PlogStreamReader reader;
+    private final PlogStreamReader reader;
     /** Cache table dictionary information for compactly encoded PLOGs */
     private Map<Integer, Table> dictionary;
     /** Cache schema definitions for replicated data sets */
@@ -75,7 +78,7 @@ public class PlogFile {
      *  a newer version */
     private boolean updatedSchema = false;
     /** Keep track of partial LCRs for multi-part updates */
-    private Map<String, LogicalChangeRecord> partialRecords;
+    private Map<String, ChangeRowRecord> partialRecords;
     /** Keep track of current transactions */
     private Map<String, TransactionInfoRecord> transactionRecords;
     /** Header record stores the features encoded in PLOG */
@@ -88,9 +91,32 @@ public class PlogFile {
     private boolean forceCloseAtEnd;
     
     /**
-     * Create and initialize PLOG file from defaults
+     * Create and initialize PLOG file from defaults with configured domain
+     * reader
+     * 
+     * @param domainReader the domain reader to use for converting the entries
+     *                     in this PLOG file to domain records
+     * @throws Exception when initialisation error occur
      */
-    public PlogFile () {
+    public PlogFile (final DomainReader domainReader) throws Exception {
+        reader = new PlogStreamReader(this, domainReader);
+        init ();
+    }
+    
+    /**
+     * Create and initialize PLOG file from stream with configured domain
+     * reader for converting entries in stream to PLOG domain records
+     * 
+     * @param domainReader the domain reader to use for converting the entries
+     *                     in this PLOG file to domain records
+     * @param stream       pre-initialised data input stream of LCRs
+     * @throws Exception when initialisation error occur
+     */
+    public PlogFile (
+        final DomainReader domainReader,
+        final DataInputStream stream
+    ) throws Exception {
+        reader = new PlogStreamReader(this, domainReader, stream);
         init ();
     }
     
@@ -105,13 +131,16 @@ public class PlogFile {
      *                  identifies a PLOG
      * @param fullPath  Full path to on disk location of replicate MINE's 
      *                  output
+     * @param domainReader The domain reader to use for converting the entries
+     *                  in this PLOG file to domain records                 
      *                  
      * @throws Exception if unique ID fields and file name do not match
      */
     public PlogFile (
         int    id,
         int    timestamp,
-        String fullPath
+        String fullPath,
+        final  DomainReader domainReader
     ) throws Exception
     {
         this.id        = id;
@@ -126,6 +155,7 @@ public class PlogFile {
                 "timestamp: " + timestamp     + " provided"
             );
         }
+        reader = new PlogStreamReader(this, domainReader);
         init ();
     }
     
@@ -138,14 +168,16 @@ public class PlogFile {
      * @param timestamp     The epoch timestamp when PLOG was created
      * @param baseDirectory The root directory of replicate MINE's output
      * @param fileName      The file name of PLOG file on disk
-     * 
+     * @param domainReader  The domain reader to use for converting the entries
+     *                      in this PLOG file to domain records
      * @throws Exception if unique ID fields and file name do not match
      */
     public PlogFile (
         int    id, 
         int    timestamp, 
         String baseDirectory, 
-        String fileName
+        String fileName,
+        final  DomainReader domainReader
     ) throws Exception 
     {
         this.id            = id;
@@ -160,6 +192,7 @@ public class PlogFile {
                 "timestamp: " + timestamp     + " provided"
             );
         }
+        reader = new PlogStreamReader(this, domainReader);
         init ();
     }
     
@@ -174,21 +207,26 @@ public class PlogFile {
      *                      sub-stream of replication
      * @param timestamp     The epoch timestamp when PLOG was created                      
      * @param baseDirectory The base directory of replicated output
-     * @param fileName      The name of PLOG file on disk  
+     * @param fileName      The name of PLOG file on disk
+     * @param domainReader  The domain reader to use for converting the entries
+     *                       in this PLOG file to domain records
+     * @throws Exception when initialisation error occur
      */
     public PlogFile (
         int    id,
         int    loadId,
         int    timestamp,
         String baseDirectory,
-        String fileName
-    ) {
+        String fileName,
+        final  DomainReader domainReader
+    ) throws Exception {
         this.id            = id;
         this.loadId        = loadId;
         this.timestamp     = timestamp;
         this.baseDirectory = baseDirectory;
         this.fileName      = fileName;
     
+        reader = new PlogStreamReader(this, domainReader);
         init ();
     }
     
@@ -196,8 +234,7 @@ public class PlogFile {
     private void init () {
         dictionary = new HashMap<Integer, Table>();
         schemas = new HashMap<String, DDLMetaData>();
-        reader = new PlogStreamReader(this);
-        partialRecords = new HashMap <String, LogicalChangeRecord>();
+        partialRecords = new HashMap <String, ChangeRowRecord>();
         transactionRecords = 
             new LinkedHashMap <String, TransactionInfoRecord>();
         forceCloseAtEnd = false;
@@ -318,18 +355,6 @@ public class PlogFile {
     }
     
     /**
-     * If needed, allow setting the PLOG stream reader to use for reading
-     * PLOG entries
-     * 
-     * @param reader the reader to use to treat PLOG file as data stream
-     * 
-     * @see PlogStreamReader
-     */
-    public void setReader (PlogStreamReader reader) {
-        this.reader = reader;
-    }
-    
-    /**
      * Return the reader that is used by PLOG for reading it's contents
      * 
      * @return PLOG reader
@@ -420,7 +445,7 @@ public class PlogFile {
      *                    supplementally logged key
      */
     public void setPartialRecords (
-        Map<String, LogicalChangeRecord> partialLCRs
+        Map<String, ChangeRowRecord> partialLCRs
     ) {
         this.partialRecords = partialLCRs;
     }
@@ -431,7 +456,7 @@ public class PlogFile {
      * 
      * @return the partial LCRs in this PLOG
      */
-    public Map<String, LogicalChangeRecord> getPartialRecords () {
+    public Map<String, ChangeRowRecord> getPartialRecords () {
         return this.partialRecords;
     }
     
@@ -626,7 +651,7 @@ public class PlogFile {
     public String toString () {
         return 
             "PLOG ID: " + id + " " +
-            (loadId > 0 ? "load ID:" + loadId + " " : "") + 
+            (loadId > 0 ? "load ID: " + loadId + " " : "") + 
             "file: " + fileName + " " + 
             "ready: " + canUse();
     }

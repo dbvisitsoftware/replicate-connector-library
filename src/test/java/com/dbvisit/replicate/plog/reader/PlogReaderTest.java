@@ -14,10 +14,10 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.dbvisit.replicate.plog.domain.LogicalChangeRecord;
+import com.dbvisit.replicate.plog.domain.ChangeRowRecord;
 import com.dbvisit.replicate.plog.domain.TransactionInfoRecord;
 import com.dbvisit.replicate.plog.domain.parser.DomainParser;
-import com.dbvisit.replicate.plog.domain.parser.LogicalChangeParser;
+import com.dbvisit.replicate.plog.domain.parser.ChangeRowParser;
 import com.dbvisit.replicate.plog.domain.parser.MetaDataParser;
 import com.dbvisit.replicate.plog.domain.parser.TransactionInfoParser;
 import com.dbvisit.replicate.plog.domain.ChangeAction;
@@ -239,15 +239,16 @@ public class PlogReaderTest {
             plog = new PlogFile (
                 PLOG_WITH_LCR_INSERT_ID,
                 PLOG_WITH_LCR_INSERT_TIMESTAMP,
-                fileName
+                fileName,
+                DomainReader.builder()
+                    .persistCriteria(persistCriteria)
+                    .domainParsers(domainParsers)
+                    .build()
             );
             
             plog.open ();
             
             PlogStreamReader reader = plog.getReader();
-            
-            reader.getDomainReader().setDomainParsers(domainParsers);
-            reader.getDomainReader().setPersistCriteria(persistCriteria);
             
             /* for testing make flush size 100, but PLOG should contain only 1
              * LCR data record
@@ -266,7 +267,7 @@ public class PlogReaderTest {
             );
             
             /* first record is LCR */
-            LogicalChangeRecord lcr = (LogicalChangeRecord)drs.get(0);
+            ChangeRowRecord lcr = (ChangeRowRecord)drs.get(0);
             /* second is TX for LCR */
             TransactionInfoRecord txr = (TransactionInfoRecord)drs.get(1);
             
@@ -322,16 +323,17 @@ public class PlogReaderTest {
             plog = new PlogFile (
                 PLOG_WITH_LCR_UPDATE_ID,
                 PLOG_WITH_LCR_UPDATE_TIMESTAMP,
-                fileName
+                fileName,
+                DomainReader.builder()
+                    .persistCriteria(persistCriteria)
+                    .domainParsers(domainParsers)
+                    .build()
             );
             
             plog.open ();
 
             PlogStreamReader reader = plog.getReader();
             
-            reader.getDomainReader().setDomainParsers(domainParsers);
-            reader.getDomainReader().setPersistCriteria(persistCriteria);
-
             /* for testing make flush size 100, but PLOG should contain only 1
              * LCR data record
              */
@@ -352,8 +354,8 @@ public class PlogReaderTest {
             for (DomainRecord dr : drs) {
                 logger.info (dr.toJSONString());
                 
-                if (dr.isChangeRecord()) {
-                    LogicalChangeRecord lcr = (LogicalChangeRecord)dr;
+                if (dr.isChangeRowRecord()) {
+                    ChangeRowRecord lcr = (ChangeRowRecord)dr;
                     
                     logger.info (lcr.toJSONString());
                     
@@ -419,15 +421,16 @@ public class PlogReaderTest {
             plog = new PlogFile (
                 PLOG_WITH_LCR_DELETE_ID, 
                 PLOG_WITH_LCR_DELETE_TIMESTAMP,
-                fileName
+                fileName,
+                DomainReader.builder()
+                    .persistCriteria(persistCriteria)
+                    .domainParsers(domainParsers)
+                    .build()
             );
             plog.open ();
 
             PlogStreamReader reader = plog.getReader();
             
-            reader.getDomainReader().setDomainParsers(domainParsers);
-            reader.getDomainReader().setPersistCriteria(persistCriteria);
-
             /* for testing make flush size 100, but PLOG should contain only 1
              * LCR data record
              */
@@ -448,8 +451,8 @@ public class PlogReaderTest {
             for (DomainRecord dr : drs) {
                 logger.info (dr.toJSONString());
                 
-                if (dr.isChangeRecord()) {
-                    LogicalChangeRecord lcr = (LogicalChangeRecord)dr;
+                if (dr.isChangeRowRecord()) {
+                    ChangeRowRecord lcr = (ChangeRowRecord)dr;
                     
                     assertTrue (
                         "Expect DELETE LCR, but found: " + 
@@ -514,16 +517,17 @@ public class PlogReaderTest {
             plog = new PlogFile (
                 PLOG_WITH_LCR_INSERT_ID, 
                 PLOG_WITH_LCR_INSERT_TIMESTAMP,
-                fileName
+                fileName,
+                DomainReader.builder()
+                    .persistCriteria(persistCriteria)
+                    .domainParsers(domainParsers)
+                    .build()
             );
             
             plog.open ();
 
             PlogStreamReader reader = plog.getReader();
             
-            reader.getDomainReader().setDomainParsers(domainParsers);
-            reader.getDomainReader().setPersistCriteria(persistCriteria);
-
             /* for testing make flush size 100, but PLOG should contain only 1
              * LCR data record
              */
@@ -544,8 +548,8 @@ public class PlogReaderTest {
             int l = 0;
             for (DomainRecord dr : drs) {
                 logger.info (dr.toJSONString());
-                if (dr.isChangeRecord()) {
-                    LogicalChangeRecord lcr = (LogicalChangeRecord)dr;
+                if (dr.isChangeRowRecord()) {
+                    ChangeRowRecord lcr = (ChangeRowRecord)dr;
                 
                     String action = INSERT_ACTIONS[l];
                    
@@ -632,15 +636,16 @@ public class PlogReaderTest {
             plog = new PlogFile (
                 PLOG_WITH_LCR_UPDATE_ID, 
                 PLOG_WITH_LCR_UPDATE_TIMESTAMP,
-                fileName
+                fileName,
+                DomainReader.builder()
+                    .persistCriteria(persistCriteria)
+                    .domainParsers(domainParsers)
+                    .build()
             );
             plog.open ();
 
             PlogStreamReader reader = plog.getReader();
             
-            reader.getDomainReader().setDomainParsers(domainParsers);
-            reader.getDomainReader().setPersistCriteria(persistCriteria);
-
             /* for testing make flush size 100, but PLOG should contain only 1
              * LCR data record
              */
@@ -660,8 +665,8 @@ public class PlogReaderTest {
             
             int l = 0;
             for (DomainRecord dr : drs) {
-                if (dr.isChangeRecord()) {
-                    LogicalChangeRecord lcr = (LogicalChangeRecord)dr;
+                if (dr.isChangeRowRecord()) {
+                    ChangeRowRecord lcr = (ChangeRowRecord)dr;
                     
                     String action = UPDATE_ACTIONS[l];
                     logger.info (lcr.toJSONString());
@@ -749,15 +754,16 @@ public class PlogReaderTest {
             plog = new PlogFile (
                 PLOG_WITH_LCR_DELETE_ID, 
                 PLOG_WITH_LCR_DELETE_TIMESTAMP,
-                fileName
+                fileName,
+                DomainReader.builder()
+                    .persistCriteria(persistCriteria)
+                    .domainParsers(domainParsers)
+                    .build()
             );
             plog.open ();
 
             PlogStreamReader reader = plog.getReader();
             
-            reader.getDomainReader().setDomainParsers(domainParsers);
-            reader.getDomainReader().setPersistCriteria(persistCriteria);
-
             /* for testing make flush size 100, but PLOG should contain only 1
              * LCR data record
              */
@@ -768,7 +774,7 @@ public class PlogReaderTest {
             }
 
             List<DomainRecord> drs = reader.flush();
-            LogicalChangeRecord lcr = (LogicalChangeRecord)drs.get (0);
+            ChangeRowRecord lcr = (ChangeRowRecord)drs.get (0);
 
             assertTrue (
                 "Expecting 1 DELETE LCR (with LOB) and 1 TX, but found " + 
@@ -839,25 +845,25 @@ public class PlogReaderTest {
         PlogFile plog = null;
 
         try {
+            /* test merging */
             plog = new PlogFile (
                 PLOG_WITH_LCR_INSERT_ID, 
                 PLOG_WITH_LCR_INSERT_TIMESTAMP,
-                fileName
+                fileName,
+                DomainReader.builder()
+                    .persistCriteria(persistCriteria)
+                    .domainParsers(domainParsers)
+                    .mergeMultiPartRecords(true)
+                    .build()
             );
             plog.open ();
 
             PlogStreamReader reader = plog.getReader();
             
-            reader.getDomainReader().setDomainParsers(domainParsers);
-            reader.getDomainReader().setPersistCriteria(persistCriteria);
-
             /* for testing make flush size 100, but PLOG should contain only 1
              * LCR data record
              */
             reader.setFlushSize(100);
-            
-            /* test merging */
-            reader.getDomainReader().enableMultiPartMerging();
 
             while (!reader.isDone()) {
                 reader.read();
@@ -876,8 +882,8 @@ public class PlogReaderTest {
             for (DomainRecord dr : drs) {
                 logger.info (dr.toJSONString());
                 
-                if (dr.isChangeRecord()) {
-                    LogicalChangeRecord lcr = (LogicalChangeRecord)dr;
+                if (dr.isChangeRowRecord()) {
+                    ChangeRowRecord lcr = (ChangeRowRecord)dr;
                     
                     assertTrue (
                         "Merged INSERTS only",
@@ -959,25 +965,25 @@ public class PlogReaderTest {
         PlogFile plog = null;
 
         try {
+            /* test merging */
             plog = new PlogFile (
                 PLOG_WITH_LCR_UPDATE_ID,
                 PLOG_WITH_LCR_UPDATE_TIMESTAMP,
-                fileName
+                fileName,
+                DomainReader.builder()
+                    .persistCriteria(persistCriteria)
+                    .domainParsers(domainParsers)
+                    .mergeMultiPartRecords(true)
+                    .build()
             );
             plog.open ();
 
             PlogStreamReader reader = plog.getReader();
             
-            reader.getDomainReader().setDomainParsers(domainParsers);
-            reader.getDomainReader().setPersistCriteria(persistCriteria);
-
             /* for testing make flush size 100, but PLOG should contain only 1
              * LCR data record
              */
             reader.setFlushSize(100);
-            
-            /* test merging */
-            reader.getDomainReader().enableMultiPartMerging();
 
             while (!reader.isDone()) {
                 reader.read();
@@ -996,8 +1002,8 @@ public class PlogReaderTest {
             for (DomainRecord dr : drs) {
                 logger.info (dr.toJSONString());
                 
-                if (dr.isChangeRecord()) {
-                    LogicalChangeRecord lcr = (LogicalChangeRecord)dr;
+                if (dr.isChangeRowRecord()) {
+                    ChangeRowRecord lcr = (ChangeRowRecord)dr;
                     
                     assertTrue (
                         "Merged UPDATE only",
@@ -1033,7 +1039,8 @@ public class PlogReaderTest {
                         }
                         else {
                             assertTrue (
-                                "Expecting: " + merged[c],
+                                "Expecting column: " + c + "  value: " +
+                                merged[c] + " but got NULL",
                                 merged[c] == null
                             );
                         }
@@ -1071,7 +1078,7 @@ public class PlogReaderTest {
             put (
                 EntryType.ETYPE_CONTROL, 
                 new DomainParser[] { 
-                    new LogicalChangeParser()
+                    new ChangeRowParser()
                 }
             );
             put (
@@ -1083,7 +1090,7 @@ public class PlogReaderTest {
             put (
                 EntryType.ETYPE_LCR_DATA,
                 new DomainParser[] {
-                    new LogicalChangeParser(),
+                    new ChangeRowParser(),
                     txParser
                 }
             );

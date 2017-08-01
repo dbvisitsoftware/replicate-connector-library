@@ -43,8 +43,14 @@ public class Column {
     private Integer scale;
     /** Define whether or not the data in this column may be null */
     @JsonProperty("isNullable")
-    private Boolean nullable;
-
+    private Boolean isNullable;
+    /** Define whether or not this column is part of a key constraint */
+    @JsonProperty("isKey")
+    private Boolean isKey = false;
+    /** State of column after DDL/NOOP operation, defaults to newly created */
+    @JsonIgnore
+    private ColumnState state = ColumnState.CREATED;
+    
     /** 
      * Create empty, un-initialized column for JSON de-serialization
      */
@@ -54,13 +60,13 @@ public class Column {
     /**
      * Create and initialize column meta data, used by testing
      * 
-     * @param id        column ordinal number, ID
-     * @param name      name of column
-     * @param type      data type for column
-     * @param precision precision for column
-     * @param scale     scale for column
-     * @param nullable  true if column data may be null, else false if it's
-     *                  mandatory
+     * @param id         column ordinal number, ID
+     * @param name       name of column
+     * @param type       data type for column
+     * @param precision  precision for column
+     * @param scale      scale for column
+     * @param isNullable true if column data may be null, else false if it's
+     *                   mandatory
      */
     public Column (
         Integer id,
@@ -68,14 +74,14 @@ public class Column {
         String  type,
         Integer precision,
         Integer scale,
-        Boolean nullable
+        Boolean isNullable
     ) {
-        this.id        = id;
-        this.name      = name;
-        this.type      = type;
-        this.precision = precision;
-        this.scale     = scale;
-        this.nullable  = nullable;
+        this.id         = id;
+        this.name       = name;
+        this.type       = type;
+        this.precision  = precision;
+        this.scale      = scale;
+        this.isNullable = isNullable;
     }
 
     /**
@@ -197,10 +203,10 @@ public class Column {
     /**
      * Set whether or not data in this column may be missing, eg. set as nulls
      * 
-     * @param nullable true if column data may be null, false if mandatory
+     * @param isNullable true if column data may be null, false if mandatory
      */
-    public void setNullable (Boolean nullable) {
-        this.nullable = nullable;
+    public void setIsNullable (Boolean isNullable) {
+        this.isNullable = isNullable;
     }
 
     /**
@@ -208,8 +214,9 @@ public class Column {
      * 
      * @return true if data in column is not mandatory, else true
      */
-    public Boolean getNullable () {
-        return this.nullable;
+    @JsonProperty("isNullable")
+    public Boolean isNullable () {
+        return this.isNullable;
     }
 
     /**
@@ -241,7 +248,11 @@ public class Column {
      * @return string version of this column meta data
      */
     public String toString () {
-        return "Column: " + name + " " + type;
+        return "Column: " + name + " " + type + (
+                    state.ordinal() > ColumnState.UNCHANGED.ordinal()
+                    ? " (" + state + ")"
+                    : ""
+               );
     }
 
     /** 
@@ -253,4 +264,65 @@ public class Column {
         return id + ":" + name + ":" + type;
     }
 
+    /**
+     * Set whether or not this column is part of table key constraint
+     * 
+     * @param isKey true if a key column, else false
+     */
+    public void setIsKey (boolean isKey) {
+        this.isKey = isKey;
+    }
+    
+    /**
+     * Return whether or not this column is part of table key constraint
+     * 
+     * @return true if a key column, else false
+     */
+    @JsonProperty("isKey")
+    public boolean isKey () {
+        return isKey;
+    }
+    
+    /**
+     * Return whether or not this column may be considered part of a
+     * key when no constraints are defined, consider is as suplog
+     * key
+     * 
+     * @return true if this column can be used, else false
+     */
+    public boolean canUseAsSuplogKey () {
+        /* when a table has no constrain we choose to use certain columns
+         * as part of a unique key
+         */
+        boolean invalid =
+            type.equals("CLOB")       ||
+            type.equals("NCLOB")      ||
+            type.equals("BLOB")       ||
+            type.equals("CLOB_UTF16") ||
+            type.equals("LONG")       ||
+            type.equals("RAW")        ||
+            type.equals("LONG RAW");
+        
+        return (invalid ? false : true);
+    }
+    
+    /**
+     * Set the column status during DDL/NO operation
+     * 
+     * @param state the status of column during operation
+     */
+    public void setState (ColumnState state) {
+        this.state = state;
+    }
+    
+    /**
+     * Return the column status after DDL/NO operation
+     * 
+     * @return return column status
+     * @see ColumnState
+     */
+    public ColumnState getState () {
+        return state;
+    }
+    
 }

@@ -30,10 +30,12 @@ import org.slf4j.LoggerFactory;
 
 import com.dbvisit.replicate.plog.config.PlogConfig;
 import com.dbvisit.replicate.plog.config.PlogConfigType;
+import com.dbvisit.replicate.plog.reader.DomainReader.DomainReaderBuilder;
 
 /** 
- * Manages PLOGs on disk including finding, monitoring and scanning for a
- * single client
+ * PlogFileManager is responsible for finding PLOG files on disk and
+ * producing a set of <em>PlogFile</em>s for converting a sub-stream 
+ * of LCRs to <em>DomainRecord</em>s
  */
 public class PlogFileManager {
     private static final Logger logger = LoggerFactory.getLogger(
@@ -56,8 +58,8 @@ public class PlogFileManager {
     private boolean active = false;
     /** Number of scans done waiting for PLOGs */
     private int scanCount;
-    /** The current open PLOG */
-    private PlogFile plog;
+    /** The next PLOG to read from */
+    private PlogFile nextPlog;
     /** The previously closed PLOG */
     private PlogFile prevPlog;
     /** Allow it to be forcefully interrupted when idle time out occurs */
@@ -70,6 +72,63 @@ public class PlogFileManager {
     private final Map<Integer, Boolean> processedSeq;
     /** Cache of potential restarts in PLOG sequence */
     private final Map<String, Boolean> restartBoundaryPlogs;
+    /** All PLOGs produced by this file manager will use the same domain reader
+     *  to read a sub-stream of data, as configured by read criteria */
+    private final DomainReaderBuilder builder;
+    
+    /**
+     * Create and configure PLOG file manager.
+     * 
+     * @param config PLOG session configuration
+     * @param builder The DomainReaderBuilder to use to build DomainReaders
+     *               for all PLOGs, used for converting sub-stream of LCRs 
+     *               to domain records
+     * 
+     * @throws Exception Failed to configure PLOG file manager
+     */
+    public PlogFileManager (
+        final PlogConfig config,
+        final DomainReaderBuilder builder
+    ) 
+    throws Exception{
+        init(config);
+        if (!isValid()) {
+            throw new Exception ("PLOG file manager has failed initialisation");
+        }
+        this.builder = builder;
+        fileDetails  = new HashMap<Integer, LinkedList<PlogFileDetails>>();
+        processedSeq = new HashMap<Integer, Boolean>();
+        restartBoundaryPlogs = new HashMap<String, Boolean>();
+    }
+    
+    /**
+     * Create and configure PLOG file manager to start scanning at certain
+     * PLOG sequence.
+     * 
+     * @param config  PLOG session configuration
+     * @param builder The DomainReaderBuilder to use to build DomainReaders
+     *                for all PLOGs, used for converting sub-stream of LCRs 
+     *                to domain records
+     * @param plogUID Unique ID of PLOG to start processing at
+     * 
+     * @throws Exception Failed to configure PLOG file manager
+     */
+    public PlogFileManager (
+        final PlogConfig config, 
+        final DomainReaderBuilder builder,
+        final long plogUID
+    ) throws Exception{
+        init(config);
+        if (!isValid()) {
+            throw new Exception ("Fatal: PLOG file manager");
+        }
+        this.builder = builder;
+        fileDetails  = new HashMap<Integer, LinkedList<PlogFileDetails>>();
+        processedSeq = new HashMap<Integer, Boolean>();
+        restartBoundaryPlogs = new HashMap<String, Boolean>();
+        
+        startAt (plogUID);
+    }
     
     /**
      * Set the URI of replicate MINE output
@@ -147,7 +206,7 @@ public class PlogFileManager {
 
     /**
      * Return the wait (sleep) time in milliseconds that define a time
-     * interval for scans and health chcks
+     * interval for scans and health checks
      * 
      * @return time in milliseconds
      */
@@ -245,14 +304,13 @@ public class PlogFileManager {
     }
 
     /**
-     * Return the current PLOG file that is active, either waiting to read,
-     * busy reading or waiting at end of PLOG stream for new data to
-     * arrive or a log switch to occur
+     * Return the next PLOG file to read from, may be null if <em>scan()</em>
+     * has not been called and/or no PLOGs are available
      * 
-     * @return PLOG file that is actively reading and/or ready to be used
+     * @return PLOG file null or valid PLOG to read from
      */
     public PlogFile getPlog () {
-        return this.plog;
+        return this.nextPlog;
     }
     
     /** 
@@ -316,44 +374,6 @@ public class PlogFileManager {
     }
     
     /**
-     * Create and configure PLOG file manager.
-     * 
-     * @param config PLOG session configuration
-     * 
-     * @throws Exception Failed to configure PLOG file manager
-     */
-    public PlogFileManager (PlogConfig config) throws Exception{
-        init(config);
-        if (!isValid()) {
-            throw new Exception ("Fatal: PLOG file manager");
-        }
-        fileDetails    = new HashMap<Integer, LinkedList<PlogFileDetails>>();
-        processedSeq   = new HashMap<Integer, Boolean>();
-        restartBoundaryPlogs = new HashMap<String, Boolean>();
-    }
-    
-    /**
-     * Create and configure PLOG file manager to start scanning at certain
-     * PLOG sequence.
-     * 
-     * @param config  PLOG session configuration
-     * @param plogUID Unique ID of PLOG to start processing at
-     * 
-     * @throws Exception Failed to configure PLOG file manager
-     */
-    public PlogFileManager (PlogConfig config, long plogUID) throws Exception{
-        init(config);
-        if (!isValid()) {
-            throw new Exception ("Fatal: PLOG file manager");
-        }
-        fileDetails    = new HashMap<Integer, LinkedList<PlogFileDetails>>();
-        processedSeq   = new HashMap<Integer, Boolean>();
-        restartBoundaryPlogs = new HashMap<String, Boolean>();
-        
-        startAt (plogUID);
-    }
-
-    /**
      * Search a directory and find the oldest PLOG, that is the one with
      * the lowest sequence number. <p>Used this method for a cold start.</p>
      * 
@@ -361,7 +381,7 @@ public class PlogFileManager {
      *         all.
      * @throws Exception Failed to read PLOG location
      */
-    public int findOldestPlogSequence   () throws Exception {
+    public int findOldestPlogSequence () throws Exception {
         int rtval = Integer.MAX_VALUE;
         File dir = new File(plogLocation);
         if (!dir.canRead()) {
@@ -370,15 +390,21 @@ public class PlogFileManager {
         
         File[] matchingFiles = dir.listFiles(new FilenameFilter() {
             public boolean accept(File dir, String name) {
-                return name.toLowerCase().contains(".plog.");
+                return name.toLowerCase().contains("." + PLOG_SUFFIX + ".");
             }
         });
+        
+        if (matchingFiles == null) {
+            throw new Exception (
+                "Invalid location for PLOGs: " + dir.toString()
+            );
+        }
         
         for (File mf : matchingFiles) {
             String p = null;
             try {
                 p = mf.getName();
-                p = p.substring(0, p.indexOf(".plog."));
+                p = p.substring(0, p.indexOf("." + PLOG_SUFFIX + "."));
                 int s = Integer.parseInt(p);
                 if (s < rtval) {
                     rtval = s;
@@ -394,6 +420,17 @@ public class PlogFileManager {
         return rtval;
     }
 
+    private boolean activeMultiSequence () {
+        boolean multi = false;
+        
+        if (prevPlog != null) {
+            multi = fileDetails.containsKey(prevPlog.getId()) &&
+                    !fileDetails.get(prevPlog.getId()).isEmpty();
+        }
+        
+        return multi;
+    }
+    
     /**
      * Find the next PLOG file for a given sequence, supporting 
      * multi-sequence PLOGs.
@@ -425,19 +462,20 @@ public class PlogFileManager {
                 /* pop off next one */
                 PlogFileDetails pfd = cache.pop();
                 
-                plog = new PlogFile (
+                nextPlog = new PlogFile (
                     pfd.plogSequence, 
                     pfd.timestamp,
                     plogLocation.getPath().toString(),
-                    pfd.fileName
+                    pfd.fileName,
+                    builder.build()
                 );
                 
-                logger.debug (
-                    "Found PLOG in multi-sequence cache: " + plog.getFileName()
+                logger.trace (
+                    "Found PLOG in multi-sequence cache: " + nextPlog.getFileName()
                 );
                 
                 if (cache.isEmpty()) {
-                    logger.debug ("Done with multi-sequence: " + plogSequence);
+                    logger.trace ("Done with multi-sequence: " + plogSequence);
                     
                     /* if now empty we're done with sequence */
                     processedSeq.put (plogSequence, true);
@@ -446,7 +484,7 @@ public class PlogFileManager {
             else {
                 processedSeq.put (plogSequence, false);
                 
-                final String prefix = plogSequence + ".plog";
+                final String prefix = plogSequence + "." + PLOG_SUFFIX;
                 File dir = new File(plogLocation);
                 boolean atRestart = false;
                 
@@ -462,6 +500,11 @@ public class PlogFileManager {
                     }
                 });
                 
+                if (matchingFiles == null) {
+                    throw new Exception (
+                        "Invalid location for PLOGs: " + dir.toString()
+                    );
+                }
                 if (matchingFiles.length == 0) {
                     throw new FileNotFoundException(
                         "No file(s) found for sequence: " + plogSequence + 
@@ -472,7 +515,7 @@ public class PlogFileManager {
                 /* we have matching file(s) */
                 for (File mf : matchingFiles) {
                     if (logger.isDebugEnabled()) {
-                        logger.debug (
+                        logger.trace (
                             "Found candidate PLOG: " + mf.getName() + " " +
                             "size: " + 
                             (new File (mf.getAbsolutePath())).length()
@@ -505,15 +548,16 @@ public class PlogFileManager {
                 
                 PlogFileDetails pfd = matchedFileDetails.pop();
                 
-                plog = new PlogFile (
+                nextPlog = new PlogFile (
                     pfd.plogSequence, 
                     pfd.timestamp,
                     plogLocation.getPath().toString(),
-                    pfd.fileName
+                    pfd.fileName,
+                    builder.build()
                 );
                 
                 if (atRestart) {
-                    restartBoundaryPlogs.put (plog.getFileName(), true);
+                    restartBoundaryPlogs.put (nextPlog.getFileName(), true);
                 }
                 
                 if (matchedFileDetails.isEmpty()) {
@@ -524,10 +568,23 @@ public class PlogFileManager {
         }
     }
     
-    
+    /** Restarts the PLOG file manager at a specific PLOG file, it does so
+     *  by cleaning out all existing scanning state
+     * 
+     * @param plogUID The unique ID for PLOG to start at
+     * @throws Exception for any restart error
+     */
+    public void restartAt (long plogUID) throws Exception {
+        if (isActive()) {
+            reset();
+        }
+        startAt (plogUID);
+    }
     
     /**
-     * Start scanning at a certain PLOG in replication
+     * Prepare the PLOG file manager to start scanning at a certain 
+     * PLOG in replication. NOTE: this does not open the PLOG file,
+     * only prepares for the mandatory call to <em>scan()</em>.
      * 
      * @param plogUID unique ID for PLOG to start scanning at
      * 
@@ -539,7 +596,7 @@ public class PlogFileManager {
         
         if (id < 1) {
             throw new Exception (
-                "Invalid PLOG sequence to start from: " + id
+                "Invalid PLOG sequence: " + id + ", uid: " + plogUID
             );
         }
         
@@ -548,18 +605,30 @@ public class PlogFileManager {
          */
         findNextPlogFile(id);
         
-        if (plog.getUID() == plogUID) {
+        if (nextPlog.getUID() == plogUID) {
             /* found the one requested, so need to rewind to previous for
              * scan to work correctly for a warm start, watch out for
              * multi-sequence due to a replicate restart
              */
             int prevId = id - 1;
             
+            logger.trace ("Reset scanning to PLOG sequence: " + prevId);
+            
             try {
                 findNextPlogFile(prevId);
+                
+                logger.trace (
+                    "Reset next plog to previous plog: " + 
+                    nextPlog.getFileName()
+                );
             
                 if (fileDetails.containsKey(prevId) &&
                     fileDetails.get(prevId).size() > 0) {
+                    
+                    logger.trace (
+                        "Restarting at end of previous multi-sequence: " + 
+                        prevId
+                    );
                
                     int next = fileDetails.get(prevId).size();
                     
@@ -570,12 +639,20 @@ public class PlogFileManager {
                         findNextPlogFile(prevId);
                         next--;
                     }
+                    logger.trace (
+                        "Restarting previous multi-sequence at PLOG: " + 
+                        nextPlog.getFileName()
+                    );
                 }
             }
             catch (FileNotFoundException fe) {
                 /* fine, not physical previous PLOG */
-                plog.setId(prevId);
-                plog.setFileName("");
+                logger.trace (
+                     "Previous PLOG at sequence: " + prevId + " is no " +
+                     "longer available, mark it as empty file"
+                );
+                nextPlog.setId(prevId);
+                nextPlog.setFileName("");
             }
             finally {
                 /* reset, need to redo its scan */
@@ -584,28 +661,59 @@ public class PlogFileManager {
             }
         }
         else if (fileDetails.containsKey(id) &&
-                 fileDetails.get(id).size() > 0) 
+                 fileDetails.get(id).size() > 0)
         {
+            logger.trace ("Restarting with multi-sequence PLOG: " + id);
+            
             int pop = 0;
-            /* have multi-sequence */
+            /* have multi-sequence for start sequence, use time stamp to
+             * find previous one */
             for (PlogFileDetails fd : fileDetails.get(id)) {
-                if (fd.timestamp != timestamp) {
-                    /* do not have thes one we want to start at */
+                if (fd.timestamp < timestamp) {
+                    /* do not have the one we want to start at */
                     pop++;
                 }
             }
             
-            /* pop the ones we do not want */
-            while (pop > 0) {
+            /* pop the ones we do not want prior to previous one */
+            while (pop > 1) {
                 fileDetails.get(id).pop();
                 pop--;
             }
+            logger.trace (
+                "Restarting multi-sequence at PLOG: " + nextPlog.getFileName()
+            );
         }
         
         setActive (true);
         resetScanCount ();
         /* not a cold start, MINE is running, we're resuming */
         resumed = true;
+    }
+    
+    /**
+     * Prepare the PLOG file manager to start scanning after a certain 
+     * PLOG in replication. NOTE: this does not open the PLOG file,
+     * only prepares for the mandatory call to <em>scan()</em>.
+     * 
+     * @param plogUID prepare the scan to start at the next PLOG 
+     *                after this unique ID
+     * 
+     * @throws Exception Failed to start scanning at PLOG provided
+     */
+    public void startAfter (long plogUID) throws Exception {
+        int id = PlogFile.getPlogIdFromUID(plogUID);
+        
+        if (id < 1) {
+            throw new Exception (
+                "Invalid PLOG sequence: " + id + ", uid: " + plogUID
+            );
+        }
+        
+        /* first configure it to start at this PLOG */
+        startAt(plogUID);
+        /* the next plog is one to start at */
+        findNextPlogFile(id);
     }
     
     /**
@@ -622,6 +730,7 @@ public class PlogFileManager {
      *                   error.
      */
     public synchronized void scan () throws InterruptedException, Exception {
+        logger.trace ("Scanning for PLOGs in: " + plogLocation.toString());
         if (!isActive()) {
             /* first scan */
             firstScan();
@@ -629,12 +738,12 @@ public class PlogFileManager {
         }
         else {
             /* not a first scan, set previous PLOG */
-            if (plog != null && plog != prevPlog) {
-                prevPlog = plog;
+            if (nextPlog != null && nextPlog != prevPlog) {
+                prevPlog = nextPlog;
             }
         
             /* reset current PLOG */
-            plog = null;
+            nextPlog = null;
 
             /* continue to scan for any multi-part sequences */
             if (!continueScan()) {
@@ -642,6 +751,7 @@ public class PlogFileManager {
                 nextScan();
             }
         }
+        logger.trace ("Done scanning, have next PLOG: " + nextPlog.toString());
         
         return;
     }
@@ -673,8 +783,8 @@ public class PlogFileManager {
 
             if (firstSequence < Integer.MAX_VALUE) {
                 if (logger.isDebugEnabled()) {
-                    logger.debug (
-                        "Oldest PLOG found on disk: "     + 
+                    logger.trace (
+                        "First PLOG found on disk: "     + 
                         plogLocation.toString() + " is: " +
                         firstSequence);
                 }
@@ -701,7 +811,9 @@ public class PlogFileManager {
         
         /* Get the starting plog file */
         findNextPlogFile(firstSequence);
-        logger.debug ("Starting with: " + plog.getFileName());
+        logger.debug (
+            "Replicate stream starts with: " + nextPlog.getFileName()
+        );
 
         /* open the first PLOG */
         openNextPlog ();
@@ -728,12 +840,15 @@ public class PlogFileManager {
         }
         
         try {
-            /* see if we still have files to process for previous sequence */
-            findNextPlogFile(prevPlog.getId());
-        
-            if (plog != null && 
-                !plog.getFileName().equals (prevPlog.getFileName())) {
+            /* no need to continue scan if no multi sequence is active */
+            if (activeMultiSequence()) {
+                logger.debug (
+                    "Finding next PLOG part of multi-sequence: " + 
+                     prevPlog.getId()
+                );
+                findNextPlogFile(prevPlog.getId());
                 openNextPlog ();
+                scan = true;
             }
             else {
                 scan = false;
@@ -747,7 +862,7 @@ public class PlogFileManager {
     }
     
     /**
-     * Scan for next PLOG in sequence
+     * Scan for and prepares next PLOG in sequence for reading
      * 
      * @throws InterruptedException when interrupted
      * @throws Exception when error occurs
@@ -755,22 +870,25 @@ public class PlogFileManager {
     private void nextScan () 
     throws InterruptedException, Exception
     {
-        while (plog == null) {
+        while (nextPlog == null) {
             if (Thread.currentThread().isInterrupted()) {
                 throw new InterruptedException();
             }
-            
+
             try {
                 assert (prevPlog != null);
                 
                 int nextSequence = prevPlog.getId() + 1;
                 
+                logger.trace (
+                    "Scanning for next PLOG sequence: " + nextSequence
+                );
                 findNextPlogFile (nextSequence);
                 openNextPlog();
             }
             catch (FileNotFoundException e) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug (
+                if (logger.isTraceEnabled()) {
+                    logger.trace (
                         "Waiting for next PLOG file to appear, reason: " + 
                         e.getMessage()
                     );
@@ -787,9 +905,10 @@ public class PlogFileManager {
             finally {
                 incrementScanCount ();
             }
-
-            /* wait for a while */
-            Thread.sleep(scanWaitTime);
+            if (nextPlog == null) {
+                /* wait for a while */
+                Thread.sleep(scanWaitTime);
+            }
         }
     }
     
@@ -802,40 +921,41 @@ public class PlogFileManager {
      * @throws Exception when unable to open PLOG file and it's reader
      */
     private void openNextPlog () throws Exception {
-        if (plog == null) {
+        if (nextPlog == null) {
             throw new Exception ("Unable to open null PLOG file");
         }
         
-        if (restartBoundaryPlogs.containsKey (plog.getFileName())) {
+        if (restartBoundaryPlogs.containsKey (nextPlog.getFileName())) {
             logger.debug (
-                "Restart boundary PLOG found: " + plog.getFileName()
+                "Restart boundary PLOG found: " + nextPlog.getFileName()
             );
             /* enable boundary PLOG to forcefully close its data stream
              * if it wasn't finalized correctly during restart
              */
-            plog.enableForceCloseAtEnd();
+            nextPlog.enableForceCloseAtEnd();
         }
 
         if (prevPlog != null) {
             /* copy cache from previous and close */
-            plog.copyCacheFrom(prevPlog);
+            nextPlog.copyCacheFrom(prevPlog);
             prevPlog.close();
         }
         
         /* wait until MINE has at least written the PLOG control header */
         while (!Thread.currentThread().isInterrupted() &&
-               (new File (plog.getFullPath())).length() 
+               (new File (nextPlog.getFullPath())).length() 
                < PlogFile.PLOG_DATA_BYTE_OFFSET) 
         {
             logger.info (
                 "Waiting for control header to be written to PLOG file: " + 
-                plog.getFileName()
+                nextPlog.getFileName()
             );
             
             Thread.sleep(scanWaitTime * scanInterval);
         }
         
-        plog.open();
+        logger.trace ("Opening next PLOG to read: " + nextPlog.getFileName());
+        nextPlog.open();
     }
     
     /**
@@ -847,7 +967,7 @@ public class PlogFileManager {
      * @return true it PLOG file manager can be allowed to quit, else false
      */
     public boolean canQuit () {
-        return scanCount / healthCheckInterval >= scanQuitInterval; 
+        return (scanCount / healthCheckInterval) >= scanQuitInterval; 
     }
     
     /**
@@ -872,8 +992,8 @@ public class PlogFileManager {
      */
     public void close () {
         /* cleanly close PLOGs if open when interrupted or forced to close */
-        if (plog != null) {
-            plog.close();
+        if (nextPlog != null) {
+            nextPlog.close();
         }
         
         if (prevPlog != null) {
@@ -889,28 +1009,29 @@ public class PlogFileManager {
     public String toString () {
         StringBuilder sb = new StringBuilder();
         
-        sb.append (this.getClass().getSimpleName() + " [")
-          .append ("Plog location=")
-          .append (plogLocation.toString());
-        
-        
-        if (prevPlog != null) {
-            sb.append (" Prev Plog=")
-              .append (prevPlog.getFileName());
-        }
-        
-        if (plog != null) {
-            sb.append (" Current Plog=")
-              .append (plog.getFileName());
-        }
-        
-        sb.append (" Active: ")
+        sb.append ("Plog file manager")
+          .append (" URI: ")
+          .append (plogLocation.toString())
+          .append (" previous plog: ")
+          .append (prevPlog != null ? prevPlog.getFileName() : "n/a")
+          .append (" current plog: " )
+          .append (nextPlog != null ? nextPlog.getFileName() : "n/a")
+          .append (" active: ")
           .append (active)
-          .append (" Resumed: ")
-          .append (resumed)
-          .append ("]");
+          .append (" resumed: ")
+          .append (resumed);
         
         return sb.toString();
+    }
+    
+    /**
+     * Reset all scan state for restarting or re-using file manager
+     */
+    private void reset () {
+        resetScanCount();
+        fileDetails.clear();
+        processedSeq.clear();
+        restartBoundaryPlogs.clear();
     }
     
     /** 
@@ -960,7 +1081,7 @@ public class PlogFileManager {
         
         /**
          * Compare this PLOG file to another by using file details, the
-         * sequences and time stamnps of the PLOGs within replication
+         * sequences and time stamps of the PLOGs within replication
          * 
          * @param o details of the other PLOG file to compare this one too
          */
@@ -984,6 +1105,5 @@ public class PlogFileManager {
             
             return cmp;
         }
-        
     }
 }
